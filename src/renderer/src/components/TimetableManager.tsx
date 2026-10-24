@@ -64,10 +64,10 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
 
     if (mode === 'replace') {
       await window.hello11824.replaceClasses(payload, importResult?.fileName)
-      onShowMessage(`Replaced timetable with ${newClasses.length} classes.`)
+      onShowMessage(`Replaced timetable with ${newClasses.length} subjects.`)
     } else {
       await window.hello11824.appendClasses(payload, importResult?.fileName)
-      onShowMessage(`Added ${newClasses.length} classes to timetable.`)
+      onShowMessage(`Added ${newClasses.length} subjects to timetable.`)
     }
 
     if (importResult?.fileName) {
@@ -90,10 +90,10 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
   }
 
   async function handleDeleteClass(id: number) {
-    if (!confirm('Remove this class?')) return
+    if (!confirm('Remove this subject?')) return
     await window.hello11824.deleteClass(id)
     await onRefreshClasses()
-    onShowMessage('Class removed.')
+    onShowMessage('Subject removed.')
   }
 
   return (
@@ -112,7 +112,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
               setEditingClass(null)
               setShowClassModal(true)
             }}
-            title="Add class manually"
+            title="Add subject manually"
           >
             <Plus size={15} />
           </button>
@@ -151,7 +151,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
         {/* Rows */}
         {dayClasses.length === 0 ? (
           <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
-            No classes scheduled for {WEEKDAYS[selectedDay]}. Click "+" to add one!
+            No subjects scheduled for {WEEKDAYS[selectedDay]}. Click "+" to add one!
           </div>
         ) : (
           dayClasses.map((c, i) => (
@@ -180,7 +180,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
                 <button
                   className="win-btn"
                   style={{ width: 22, height: 22 }}
-                  title="Edit class"
+                  title="Edit subject"
                   onClick={() => {
                     setEditingClass(c)
                     setShowClassModal(true)
@@ -194,7 +194,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
         )}
       </div>
 
-      {/* Footer Note Card (Matching Panel 1) */}
+      {/* Footer Note Card */}
       <div
         style={{
           display: 'flex',
@@ -221,7 +221,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
         onConfirm={handleConfirmImport}
       />
 
-      {/* Class Form Modal */}
+      {/* Subject Form Modal */}
       <ClassModal
         isOpen={showClassModal}
         onClose={() => setShowClassModal(false)}

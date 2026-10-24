@@ -60,7 +60,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
 
       const parsed = await window.hello11824.parseText(text)
       setCandidates(parsed)
-      setOcrStatus(`OCR complete! Found ${parsed.length} candidate classes.`)
+      setOcrStatus(`OCR complete! Found ${parsed.length} candidate subjects.`)
       await worker.terminate()
     } catch (err) {
       setOcrStatus(`OCR error: ${err instanceof Error ? err.message : String(err)}`)
@@ -83,7 +83,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
     setCandidates(prev => [
       ...prev,
       {
-        title: 'New Class',
+        title: 'New Subject',
         weekday: 1,
         startTime: '09:00',
         endTime: '10:00',
@@ -180,7 +180,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Extracted {candidates.length} classes from <strong>{importResult?.fileName || 'document'}</strong>
+                  Extracted {candidates.length} subjects from <strong>{importResult?.fileName || 'document'}</strong>
                 </span>
                 <button className="btn-pill-action" onClick={addRow}>
                   <Plus size={12} /> Add Row
@@ -189,7 +189,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
 
               {candidates.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: 12 }}>
-                  No classes detected yet. Click "Add Row" or re-scan your document.
+                  No subjects detected yet. Click "Add Row" or re-scan your document.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: 220 }}>
@@ -265,7 +265,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
           {currentStep === 3 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
-                How would you like to save these {candidates.length} classes?
+                How would you like to save these {candidates.length} subjects?
               </span>
 
               <label
@@ -292,7 +292,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                     Append to Existing Timetable
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    Preserves your current classes and adds the new entries.
+                    Preserves your current subjects and adds the new entries.
                   </div>
                 </div>
               </label>
@@ -321,7 +321,7 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                     Replace Existing Timetable
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    Replaces all current classes with the reviewed schedule.
+                    Replaces all current subjects with the reviewed schedule.
                   </div>
                 </div>
               </label>

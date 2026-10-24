@@ -260,7 +260,8 @@ body {
   margin-top: 2px;
 }
 
-.next-class-card {
+.next-class-card,
+.next-subject-card {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -272,12 +273,14 @@ body {
   transition: all 0.15s ease;
 }
 
-.next-class-card:hover {
+.next-class-card:hover,
+.next-subject-card:hover {
   background: rgba(18, 28, 52, 0.85);
   border-color: rgba(96, 165, 250, 0.4);
 }
 
-.next-class-icon {
+.next-class-icon,
+.next-subject-icon {
   width: 30px;
   height: 30px;
   border-radius: 8px;
@@ -290,25 +293,29 @@ body {
   flex-shrink: 0;
 }
 
-.next-class-info {
+.next-class-info,
+.next-subject-info {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
 
-.next-class-title {
+.next-class-title,
+.next-subject-title {
   font-size: 12.5px;
   font-weight: 600;
   color: #fff;
 }
 
-.next-class-time {
+.next-class-time,
+.next-subject-time {
   font-size: 11px;
   color: var(--text-muted);
 }
 
-.next-class-room {
+.next-class-room,
+.next-subject-room {
   font-size: 11px;
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.05);
@@ -316,14 +323,16 @@ body {
   border-radius: 4px;
 }
 
-/* Today's Classes List */
-.classes-mini-list {
+/* Today's Subjects List */
+.classes-mini-list,
+.subjects-mini-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.class-mini-row {
+.class-mini-row,
+.subject-mini-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -332,20 +341,23 @@ body {
   padding: 3px 0;
 }
 
-.class-mini-time {
+.class-mini-time,
+.subject-mini-time {
   min-width: 42px;
   font-weight: 500;
   color: var(--text-muted);
 }
 
-.class-dot {
+.class-dot,
+.subject-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.class-mini-subject {
+.class-mini-subject,
+.subject-mini-title {
   flex: 1;
   font-weight: 500;
   color: #e2e8f0;
@@ -354,7 +366,8 @@ body {
   text-overflow: ellipsis;
 }
 
-.class-mini-room {
+.class-mini-room,
+.subject-mini-room {
   color: var(--text-muted);
   font-size: 11px;
 }

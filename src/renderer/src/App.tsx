@@ -17,7 +17,7 @@ import { TomorrowPlanner } from './components/TomorrowPlanner'
 import { WeeklyOverview } from './components/WeeklyOverview'
 import { SettingsView } from './components/SettingsView'
 import { TaskModal } from './components/TaskModal'
-import { ClassModal } from './components/ClassModal'
+import { SubjectModal } from './components/SubjectModal'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today')
@@ -382,8 +382,8 @@ export default function App() {
         onSave={handleCreateTask}
       />
 
-      {/* Global Add Class Modal */}
-      <ClassModal
+      {/* Global Add Subject Modal */}
+      <SubjectModal
         isOpen={showGlobalClassModal}
         onClose={() => setShowGlobalClassModal(false)}
         defaultWeekday={today.getDay()}

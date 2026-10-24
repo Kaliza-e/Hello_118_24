@@ -42,23 +42,23 @@ export function checkReminders(): void {
     const currentTotalMinutes = currentHours * 60 + currentMinutes
     const todayStr = dateKey(now)
 
-    // Check Class Reminders
-    const leadTimeSetting = parseInt(getSetting('class_reminder_minutes') || '10', 10)
+    // Check Subject Reminders
+    const leadTimeSetting = parseInt(getSetting('subject_reminder_minutes') || getSetting('class_reminder_minutes') || '10', 10)
     const leadTime = isNaN(leadTimeSetting) ? 10 : leadTimeSetting
 
-    const classes = listClasses()
-    const todaysClasses = classes.filter(c => c.weekday === currentWeekday)
+    const subjects = listClasses()
+    const todaysSubjects = subjects.filter(c => c.weekday === currentWeekday)
 
-    for (const c of todaysClasses) {
+    for (const c of todaysSubjects) {
       if (!c.start_time || !/^\d{2}:\d{2}$/.test(c.start_time)) continue
 
       const [sH, sM] = c.start_time.split(':').map(Number)
-      const classStartTotalMinutes = sH * 60 + sM
-      const diffMinutes = classStartTotalMinutes - currentTotalMinutes
+      const subjectStartTotalMinutes = sH * 60 + sM
+      const diffMinutes = subjectStartTotalMinutes - currentTotalMinutes
 
-      // If class is starting within [0, leadTime] minutes and not yet passed
+      // If subject is starting within [0, leadTime] minutes and not yet passed
       if (diffMinutes >= 0 && diffMinutes <= leadTime) {
-        const notifKey = `class-${c.id}-${todayStr}-${c.start_time}`
+        const notifKey = `subject-${c.id}-${todayStr}-${c.start_time}`
         if (!sentNotificationKeys.has(notifKey)) {
           sentNotificationKeys.add(notifKey)
 
@@ -66,7 +66,7 @@ export function checkReminders(): void {
           const roomText = c.room ? ` • ${c.room}` : ''
 
           const notif = new Notification({
-            title: `Hello 118:24 — Class Reminder`,
+            title: `Hello 118:24 — Subject Reminder`,
             body: `${c.title}${roomText}\n${timeText}`,
             silent: false
           })

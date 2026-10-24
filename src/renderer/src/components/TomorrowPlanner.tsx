@@ -64,8 +64,8 @@ export function TomorrowPlanner({
     })
   }, [tomorrowKey])
 
-  // Tomorrow's classes
-  const tomorrowsClasses = useMemo(() => {
+  // Tomorrow's subjects
+  const tomorrowsSubjects = useMemo(() => {
     return classes
       .filter(c => c.weekday === tomorrowWeekday)
       .sort((a, b) => a.start_time.localeCompare(b.start_time))
@@ -114,24 +114,24 @@ export function TomorrowPlanner({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         {/* ================= LEFT COLUMN ================= */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Classes */}
+          {/* Subjects */}
           <div className="app-card">
             <span className="section-sublabel" style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>
-              Classes
+              Subjects
             </span>
 
-            {tomorrowsClasses.length === 0 ? (
+            {tomorrowsSubjects.length === 0 ? (
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
-                No classes scheduled for tomorrow.
+                No subjects scheduled for tomorrow.
               </div>
             ) : (
-              <div className="classes-mini-list">
-                {tomorrowsClasses.map((c, i) => (
-                  <div key={c.id || i} className="class-mini-row" style={{ padding: '4px 0' }}>
-                    <span className="class-mini-time">{c.start_time}</span>
-                    <span className="class-dot" style={{ background: DOT_COLORS[i % DOT_COLORS.length] }} />
-                    <span className="class-mini-subject">{c.title}</span>
-                    {c.room && <span className="class-mini-room">{c.room}</span>}
+              <div className="classes-mini-list subjects-mini-list">
+                {tomorrowsSubjects.map((c, i) => (
+                  <div key={c.id || i} className="class-mini-row subject-mini-row" style={{ padding: '4px 0' }}>
+                    <span className="class-mini-time subject-mini-time">{c.start_time}</span>
+                    <span className="class-dot subject-dot" style={{ background: DOT_COLORS[i % DOT_COLORS.length] }} />
+                    <span className="class-mini-subject subject-mini-title">{c.title}</span>
+                    {c.room && <span className="class-mini-room subject-mini-room">{c.room}</span>}
                     <ChevronRight size={13} color="var(--text-muted)" />
                   </div>
                 ))}

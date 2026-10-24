@@ -28,6 +28,8 @@ export interface ClassRecord {
   created_at: string
 }
 
+export type SubjectRecord = ClassRecord
+
 export interface DailyPlanRecord {
   plan_date: string // YYYY-MM-DD
   notes: string | null
@@ -132,6 +134,8 @@ export function initDatabase(): Database.Database {
         imported_count INTEGER NOT NULL,
         imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE VIEW IF NOT EXISTS subjects AS SELECT * FROM classes;
 
       INSERT OR REPLACE INTO schema_version (version) VALUES (1);
     `)
@@ -453,6 +457,13 @@ export function appendClasses(classes: Array<{
   appendTx(Array.isArray(classes) ? classes.slice(0, 500) : [])
   return listClasses()
 }
+
+export const listSubjects = listClasses
+export const addSubject = addClass
+export const updateSubject = updateClass
+export const deleteSubject = deleteClass
+export const replaceSubjects = replaceClasses
+export const appendSubjects = appendClasses
 
 // Daily Plans
 export function getDailyPlan(date: string): DailyPlanRecord | null {

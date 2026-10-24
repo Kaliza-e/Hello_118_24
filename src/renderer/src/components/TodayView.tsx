@@ -56,17 +56,17 @@ export function TodayView({
     return 'Good evening, Friend! 🌙'
   }, [today])
 
-  // Today's classes
-  const todaysClasses = useMemo(() => {
+  // Today's subjects
+  const todaysSubjects = useMemo(() => {
     return classes
       .filter(c => c.weekday === todayWeekday)
       .sort((a, b) => a.start_time.localeCompare(b.start_time))
   }, [classes, todayWeekday])
 
-  // Determine Next Class
-  const nextClass = useMemo(() => {
+  // Determine Next Subject
+  const nextSubject = useMemo(() => {
     const nowMinutes = today.getHours() * 60 + today.getMinutes()
-    for (const c of todaysClasses) {
+    for (const c of todaysSubjects) {
       if (!c.start_time) continue
       const [sH, sM] = c.start_time.split(':').map(Number)
       const startMinutes = sH * 60 + sM
@@ -79,8 +79,8 @@ export function TodayView({
         return c
       }
     }
-    return todaysClasses[0] || null
-  }, [todaysClasses, today])
+    return todaysSubjects[0] || null
+  }, [todaysSubjects, today])
 
   // Today's tasks (due today or unassigned date)
   const todaysTasks = useMemo(() => {
@@ -102,56 +102,56 @@ export function TodayView({
 
         <div className="today-greeting-text">{greeting}</div>
 
-        {/* Next Class Box */}
+        {/* Next Subject Box */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span className="section-sublabel">Next Class</span>
+          <span className="section-sublabel">Next Subject</span>
 
-          {nextClass ? (
-            <div className="next-class-card" onClick={() => onNavigate('timetable')}>
-              <div className="next-class-icon">
+          {nextSubject ? (
+            <div className="next-class-card next-subject-card" onClick={() => onNavigate('timetable')}>
+              <div className="next-class-icon next-subject-icon">
                 <BookOpen size={16} />
               </div>
 
-              <div className="next-class-info">
-                <span className="next-class-title">{nextClass.title}</span>
-                <span className="next-class-time">
-                  {nextClass.start_time} {nextClass.end_time ? `– ${nextClass.end_time}` : ''}
+              <div className="next-class-info next-subject-info">
+                <span className="next-class-title next-subject-title">{nextSubject.title}</span>
+                <span className="next-class-time next-subject-time">
+                  {nextSubject.start_time} {nextSubject.end_time ? `– ${nextSubject.end_time}` : ''}
                 </span>
               </div>
 
-              {nextClass.room && <span className="next-class-room">{nextClass.room}</span>}
+              {nextSubject.room && <span className="next-class-room next-subject-room">{nextSubject.room}</span>}
               <ChevronRight size={15} color="var(--text-muted)" />
             </div>
           ) : (
             <div
-              className="next-class-card"
+              className="next-class-card next-subject-card"
               style={{ justifyContent: 'center', color: 'var(--text-muted)', fontSize: 11.5 }}
               onClick={onOpenClassModal}
             >
-              No upcoming classes today • Add Class
+              No upcoming subjects today • Add Subject
             </div>
           )}
         </div>
 
-        {/* Today's Classes List */}
+        {/* Today's Subjects List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-          <span className="section-sublabel">Today's Classes</span>
+          <span className="section-sublabel">Today's Subjects</span>
 
-          {todaysClasses.length === 0 ? (
+          {todaysSubjects.length === 0 ? (
             <div style={{ fontSize: 11.5, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
-              No classes scheduled for today.
+              No subjects scheduled for today.
             </div>
           ) : (
-            <div className="classes-mini-list">
-              {todaysClasses.map((c, i) => (
-                <div key={c.id || i} className="class-mini-row">
-                  <span className="class-mini-time">{c.start_time}</span>
+            <div className="classes-mini-list subjects-mini-list">
+              {todaysSubjects.map((c, i) => (
+                <div key={c.id || i} className="class-mini-row subject-mini-row">
+                  <span className="class-mini-time subject-mini-time">{c.start_time}</span>
                   <span
-                    className="class-dot"
+                    className="class-dot subject-dot"
                     style={{ background: DOT_COLORS[i % DOT_COLORS.length] }}
                   />
-                  <span className="class-mini-subject">{c.title}</span>
-                  {c.room && <span className="class-mini-room">{c.room}</span>}
+                  <span className="class-mini-subject subject-mini-title">{c.title}</span>
+                  {c.room && <span className="class-mini-room subject-mini-room">{c.room}</span>}
                 </div>
               ))}
             </div>

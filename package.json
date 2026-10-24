@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node test/runner.mjs",
-    "package:win": "npm run build && electron-builder --win nsis"
+    "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824' -ErrorAction SilentlyContinue | Stop-Process -Force; exit 0\" && npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

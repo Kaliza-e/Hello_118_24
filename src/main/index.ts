@@ -319,7 +319,15 @@ ipcMain.handle('tasks:toggle', (_event, id: number, completed: boolean) => toggl
 ipcMain.handle('tasks:delete', (_event, id: number) => deleteTask(Number(id)))
 ipcMain.handle('tasks:rollover', (_event, fromDate: string, toDate: string) => rolloverTasks(fromDate, toDate))
 
-// Classes / Timetable
+// Subjects / Timetable
+ipcMain.handle('subjects:list', () => listClasses())
+ipcMain.handle('subjects:add', (_event, payload) => addClass(payload))
+ipcMain.handle('subjects:update', (_event, id: number, payload) => updateClass(Number(id), payload))
+ipcMain.handle('subjects:delete', (_event, id: number) => deleteClass(Number(id)))
+ipcMain.handle('subjects:replace', (_event, items, sourceFileName?: string) => replaceClasses(items, sourceFileName))
+ipcMain.handle('subjects:append', (_event, items, sourceFileName?: string) => appendClasses(items, sourceFileName))
+
+// Classes / Timetable (backward compatibility)
 ipcMain.handle('classes:list', () => listClasses())
 ipcMain.handle('classes:add', (_event, payload) => addClass(payload))
 ipcMain.handle('classes:update', (_event, id: number, payload) => updateClass(Number(id), payload))

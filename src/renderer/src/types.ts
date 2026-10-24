@@ -11,7 +11,7 @@ export interface Task {
   created_at: string
 }
 
-export interface ClassItem {
+export interface SubjectItem {
   id: number
   title: string
   weekday: number
@@ -23,7 +23,9 @@ export interface ClassItem {
   created_at?: string
 }
 
-export interface CandidateClass {
+export type ClassItem = SubjectItem
+
+export interface CandidateSubject {
   title: string
   weekday: number
   startTime: string
@@ -32,6 +34,8 @@ export interface CandidateClass {
   notes: string
   confidence?: 'high' | 'medium' | 'low'
 }
+
+export type CandidateClass = CandidateSubject
 
 export interface DailyPlan {
   plan_date: string
@@ -48,7 +52,7 @@ export interface ImportResult {
   text: string
   needsOcr: boolean
   imageData?: string
-  candidates: CandidateClass[]
+  candidates: CandidateSubject[]
 }
 
 export type ActiveTab = 'today' | 'timetable' | 'tasks' | 'plan' | 'weekly' | 'settings'

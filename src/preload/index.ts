@@ -79,7 +79,14 @@ const api = {
   deleteTask: (id: number) => ipcRenderer.invoke('tasks:delete', id),
   rolloverTasks: (fromDate: string, toDate: string) => ipcRenderer.invoke('tasks:rollover', fromDate, toDate),
 
-  // Classes
+  // Subjects / Classes
+  listSubjects: () => ipcRenderer.invoke('subjects:list'),
+  addSubject: (item: ClassPayload) => ipcRenderer.invoke('subjects:add', item),
+  updateSubject: (id: number, payload: ClassUpdatePayload) => ipcRenderer.invoke('subjects:update', id, payload),
+  deleteSubject: (id: number) => ipcRenderer.invoke('subjects:delete', id),
+  replaceSubjects: (subjects: ClassPayload[], sourceFileName?: string) => ipcRenderer.invoke('subjects:replace', subjects, sourceFileName),
+  appendSubjects: (subjects: ClassPayload[], sourceFileName?: string) => ipcRenderer.invoke('subjects:append', subjects, sourceFileName),
+
   listClasses: () => ipcRenderer.invoke('classes:list'),
   addClass: (cls: ClassPayload) => ipcRenderer.invoke('classes:add', cls),
   updateClass: (id: number, payload: ClassUpdatePayload) => ipcRenderer.invoke('classes:update', id, payload),

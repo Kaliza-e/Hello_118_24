@@ -13,7 +13,7 @@ export interface Task {
   created_at: string
 }
 
-export interface ClassItem {
+export interface SubjectItem {
   id: number
   title: string
   weekday: number
@@ -25,7 +25,9 @@ export interface ClassItem {
   created_at?: string
 }
 
-export interface CandidateClass {
+export type ClassItem = SubjectItem
+
+export interface CandidateSubject {
   title: string
   weekday: number
   startTime: string
@@ -34,6 +36,8 @@ export interface CandidateClass {
   notes: string
   confidence?: 'high' | 'medium' | 'low'
 }
+
+export type CandidateClass = CandidateSubject
 
 export interface DailyPlan {
   plan_date: string
@@ -50,7 +54,7 @@ export interface ImportResult {
   text: string
   needsOcr: boolean
   imageData?: string
-  candidates: CandidateClass[]
+  candidates: CandidateSubject[]
 }
 
 export interface HelloAPI {
@@ -95,7 +99,46 @@ export interface HelloAPI {
   deleteTask(id: number): Promise<boolean>
   rolloverTasks(fromDate: string, toDate: string): Promise<number>
 
-  // Classes
+  // Subjects / Classes
+  listSubjects(): Promise<SubjectItem[]>
+  addSubject(item: {
+    title: string
+    weekday: number
+    startTime: string
+    endTime?: string
+    room?: string
+    notes?: string
+    color?: string
+  }): Promise<SubjectItem>
+  updateSubject(id: number, payload: {
+    title?: string
+    weekday?: number
+    startTime?: string
+    endTime?: string | null
+    room?: string | null
+    notes?: string | null
+    color?: string | null
+  }): Promise<SubjectItem>
+  deleteSubject(id: number): Promise<boolean>
+  replaceSubjects(subjects: Array<{
+    title: string
+    weekday: number
+    startTime: string
+    endTime?: string
+    room?: string
+    notes?: string
+    color?: string
+  }>, sourceFileName?: string): Promise<SubjectItem[]>
+  appendSubjects(subjects: Array<{
+    title: string
+    weekday: number
+    startTime: string
+    endTime?: string
+    room?: string
+    notes?: string
+    color?: string
+  }>, sourceFileName?: string): Promise<SubjectItem[]>
+
   listClasses(): Promise<ClassItem[]>
   addClass(cls: {
     title: string
@@ -141,7 +184,7 @@ export interface HelloAPI {
 
   // Document extraction
   pickAndExtract(): Promise<ImportResult | null>
-  parseText(text: string): Promise<CandidateClass[]>
+  parseText(text: string): Promise<CandidateSubject[]>
 
   // Backup & Storage
   exportData(): Promise<boolean>
