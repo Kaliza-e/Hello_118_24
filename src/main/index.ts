@@ -34,6 +34,18 @@ let tray: Tray | null = null
 let isAppQuitting = false
 const isDev = !app.isPackaged
 
+// In development, isolate userData to prevent GPU/cache conflicts and DB collisions
+// with the installed production app running in the background.
+if (isDev) {
+  const devUserData = join(app.getPath('appData'), 'hello-118-24-dev')
+  app.setPath('userData', devUserData)
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
+
 // Creates an SVG-based tray icon with dark purple & blue gradient
 function createTrayIcon(): Electron.NativeImage {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
@@ -109,13 +121,14 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: false
     }
   })
 
   mainWindow.once('ready-to-show', () => {
     const startMinimized = getSetting('start_minimized') === 'true'
-    if (!startMinimized) {
+    // In dev mode, always show the window so the developer sees the desktop app
+    if (!startMinimized || isDev) {
       mainWindow?.show()
     }
   })
@@ -214,45 +227,55 @@ function updateTrayMenu() {
   tray.setContextMenu(contextMenu)
 }
 
-app.whenReady().then(() => {
-  initDatabase()
-  initNotifications()
-
-  // Configure Windows startup setting based on database
-  const launchOnStartup = getSetting('launch_on_startup') !== 'false'
-  const startMinimized = getSetting('start_minimized') === 'true'
-  app.setLoginItemSettings({ openAtLogin: launchOnStartup, openAsHidden: startMinimized })
-
-  // System Tray setup
-  try {
-    const icon = createTrayIcon()
-    tray = new Tray(icon)
-    tray.setToolTip('Hello 118:24 — Daily Planner & Timetable')
-    updateTrayMenu()
-    tray.on('click', () => {
-      if (mainWindow) {
-        if (mainWindow.isVisible()) {
-          mainWindow.focus()
-        } else {
-          mainWindow.show()
-          mainWindow.focus()
-        }
-      }
-    })
-  } catch (err) {
-    console.error('Failed to initialize tray:', err)
-  }
-
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    } else {
-      mainWindow?.show()
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
     }
   })
-})
+
+  app.whenReady().then(() => {
+    initDatabase()
+    initNotifications()
+
+    // Configure Windows startup setting based on database
+    const launchOnStartup = getSetting('launch_on_startup') !== 'false'
+    const startMinimized = getSetting('start_minimized') === 'true'
+    app.setLoginItemSettings({ openAtLogin: launchOnStartup, openAsHidden: startMinimized })
+
+    // System Tray setup
+    try {
+      const icon = createTrayIcon()
+      tray = new Tray(icon)
+      tray.setToolTip('Hello 118:24 — Daily Planner & Timetable')
+      updateTrayMenu()
+      tray.on('click', () => {
+        if (mainWindow) {
+          if (mainWindow.isVisible()) {
+            mainWindow.focus()
+          } else {
+            mainWindow.show()
+            mainWindow.focus()
+          }
+        }
+      })
+    } catch (err) {
+      console.error('Failed to initialize tray:', err)
+    }
+
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      } else {
+        mainWindow?.show()
+      }
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && isAppQuitting) {

@@ -63,13 +63,22 @@ export function initDatabase(): Database.Database {
 
   const dbPath = join(dir, 'hello11824.sqlite')
   const legacyDbPath = join(dir, 'daylight.sqlite')
+  const prodDbPath = join(app.getPath('appData'), 'hello-118-24', 'hello11824.sqlite')
 
-  // Seamless migration from legacy database if present
-  if (!existsSync(dbPath) && existsSync(legacyDbPath)) {
-    try {
-      copyFileSync(legacyDbPath, dbPath)
-    } catch {
-      // Continue with fresh database
+  // Seamless migration from legacy database or copy existing data to dev database
+  if (!existsSync(dbPath)) {
+    if (existsSync(legacyDbPath)) {
+      try {
+        copyFileSync(legacyDbPath, dbPath)
+      } catch {
+        // Continue with fresh database
+      }
+    } else if (existsSync(prodDbPath) && prodDbPath !== dbPath) {
+      try {
+        copyFileSync(prodDbPath, dbPath)
+      } catch {
+        // Continue with fresh database
+      }
     }
   }
 

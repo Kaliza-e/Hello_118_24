@@ -40,20 +40,23 @@ export default function App() {
     return () => clearInterval(clockTimer)
   }, [])
 
-  // Initial data loading from SQLite
+  // Initial data loading from SQLite / API
   const loadData = useCallback(async () => {
     try {
+      const api = window.hello11824
+      if (!api) return
+
       const [tList, cList, pinSetting, modeSetting] = await Promise.all([
-        window.hello11824.listTasks(),
-        window.hello11824.listClasses(),
-        window.hello11824.getSetting('pinned'),
-        window.hello11824.getSetting('widget_mode')
+        api.listTasks(),
+        api.listClasses(),
+        api.getSetting('pinned'),
+        api.getSetting('widget_mode')
       ])
 
-      setTasks(tList)
-      setClasses(cList)
+      setTasks(tList || [])
+      setClasses(cList || [])
 
-      if (pinSetting !== null) {
+      if (pinSetting !== null && pinSetting !== undefined) {
         setPinned(pinSetting !== 'false')
       }
       if (modeSetting === 'compact' || modeSetting === 'standard') {
@@ -68,11 +71,11 @@ export default function App() {
   useEffect(() => {
     loadData()
 
-    const unsubMode = window.hello11824.onModeChanged(() => {
+    const unsubMode = window.hello11824?.onModeChanged?.(() => {
       setWidgetMode(prev => (prev === 'compact' ? 'standard' : 'compact'))
     })
 
-    const unsubPin = window.hello11824.onPinnedChanged((next: boolean) => {
+    const unsubPin = window.hello11824?.onPinnedChanged?.((next: boolean) => {
       setPinned(next)
     })
 
