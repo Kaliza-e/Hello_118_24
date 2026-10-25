@@ -28,6 +28,10 @@ export default function App() {
   const [message, setMessage] = useState('')
   const [today, setToday] = useState(new Date())
 
+  // Update notification state
+  const [downloadedUpdateVersion, setDownloadedUpdateVersion] = useState<string | null>(null)
+  const [dismissedUpdatePrompt, setDismissedUpdatePrompt] = useState(false)
+
   // Modals
   const [showGlobalTaskModal, setShowGlobalTaskModal] = useState(false)
   const [showGlobalClassModal, setShowGlobalClassModal] = useState(false)
@@ -79,9 +83,23 @@ export default function App() {
       setPinned(next)
     })
 
+    const unsubUpdate = window.hello11824?.onUpdateStatusChanged?.(status => {
+      if (status.state === 'downloaded' && status.availableVersion) {
+        setDownloadedUpdateVersion(status.availableVersion)
+      }
+    })
+
+    // Check initial status on mount
+    window.hello11824?.getUpdateStatus?.().then(status => {
+      if (status?.state === 'downloaded' && status.availableVersion) {
+        setDownloadedUpdateVersion(status.availableVersion)
+      }
+    })
+
     return () => {
       unsubMode?.()
       unsubPin?.()
+      unsubUpdate?.()
     }
   }, [loadData])
 
@@ -305,6 +323,36 @@ export default function App() {
                 >
                   <X size={13} />
                 </button>
+              </div>
+            )}
+
+            {/* Ambient Update Downloaded Banner */}
+            {downloadedUpdateVersion && !dismissedUpdatePrompt && (
+              <div className="update-ambient-banner">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Sparkles size={15} color="var(--accent-cyan)" />
+                  <span>
+                    <strong>Hello 118:24 v{downloadedUpdateVersion}</strong> is downloaded and ready to install.
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-update-primary"
+                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    onClick={() => window.hello11824.quitAndInstallUpdate()}
+                  >
+                    Restart & Install
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-update-secondary"
+                    style={{ padding: '4px 8px', fontSize: 11 }}
+                    onClick={() => setDismissedUpdatePrompt(true)}
+                  >
+                    Later
+                  </button>
+                </div>
               </div>
             )}
 

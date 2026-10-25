@@ -28,6 +28,7 @@ import {
 } from './db'
 import { parseTimetableText } from './importers/parser'
 import { initNotifications } from './notifications'
+import { initUpdater, cleanupUpdater } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -136,6 +137,8 @@ function createWindow() {
       sandbox: false
     }
   })
+
+  initUpdater(mainWindow)
 
   mainWindow.once('ready-to-show', () => {
     const wasOpenedAsHidden = app.getLoginItemSettings().wasOpenedAsHidden || process.argv.includes('--hidden')
@@ -336,6 +339,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isAppQuitting = true
+  cleanupUpdater()
 })
 
 // ----------------- IPC Channel Handlers -----------------

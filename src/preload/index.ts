@@ -105,7 +105,19 @@ const api = {
   // Backup & Storage
   exportData: () => ipcRenderer.invoke('data:export'),
   importData: () => ipcRenderer.invoke('data:import'),
-  clearData: (options: { tasks?: boolean; classes?: boolean; plans?: boolean }) => ipcRenderer.invoke('data:clear', options)
+  clearData: (options: { tasks?: boolean; classes?: boolean; plans?: boolean }) => ipcRenderer.invoke('data:clear', options),
+
+  // Auto-Updater
+  getAppVersion: () => ipcRenderer.invoke('updater:get-version'),
+  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
+  checkForUpdates: (manual = true) => ipcRenderer.invoke('updater:check', manual),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  quitAndInstallUpdate: () => ipcRenderer.invoke('updater:install'),
+  onUpdateStatusChanged: (callback: (status: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data)
+    ipcRenderer.on('updater:status-changed', handler)
+    return () => ipcRenderer.removeListener('updater:status-changed', handler)
+  }
 }
 
 contextBridge.exposeInMainWorld('hello11824', api)

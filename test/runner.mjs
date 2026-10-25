@@ -21,7 +21,8 @@ import { spec } from 'node:test/reporters'
 run({
   files: [
     resolve('test/parser.test.mjs'),
-    resolve('test/database.test.mjs')
+    resolve('test/database.test.mjs'),
+    resolve('test/updater.test.mjs')
   ]
 })
   .on('test:fail', () => {

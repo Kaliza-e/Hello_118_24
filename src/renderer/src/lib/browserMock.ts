@@ -415,6 +415,34 @@ export function createBrowserMockApi(): HelloAPI {
       if (options.classes) saveToStorage(STORAGE_KEYS.CLASSES, [])
       if (options.plans) saveToStorage(STORAGE_KEYS.DAILY_PLANS, {})
       return true
+    },
+
+    // Auto-updater browser mock
+    async getAppVersion() {
+      return '0.1.0'
+    },
+    async getUpdateStatus() {
+      return {
+        state: 'not-available',
+        currentVersion: '0.1.0',
+        isPackaged: false,
+        error: 'Running in browser preview'
+      }
+    },
+    async checkForUpdates() {
+      return {
+        state: 'not-available',
+        currentVersion: '0.1.0',
+        isPackaged: false,
+        error: 'Browser preview: auto-updates require Electron desktop app.'
+      }
+    },
+    async downloadUpdate() {
+      return false
+    },
+    async quitAndInstallUpdate() {},
+    onUpdateStatusChanged() {
+      return () => {}
     }
   }
 }

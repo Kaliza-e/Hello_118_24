@@ -190,6 +190,38 @@ export interface HelloAPI {
   exportData(): Promise<boolean>
   importData(): Promise<boolean>
   clearData(options: { tasks?: boolean; classes?: boolean; plans?: boolean }): Promise<boolean>
+
+  // Auto-Updater
+  getAppVersion(): Promise<string>
+  getUpdateStatus(): Promise<UpdateStatusInfo>
+  checkForUpdates(manual?: boolean): Promise<UpdateStatusInfo>
+  downloadUpdate(): Promise<boolean>
+  quitAndInstallUpdate(): Promise<void>
+  onUpdateStatusChanged(callback: (status: UpdateStatusInfo) => void): () => void
+}
+
+export type UpdateState =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateStatusInfo {
+  state: UpdateState
+  currentVersion: string
+  availableVersion?: string
+  releaseDate?: string
+  releaseNotes?: string
+  progress?: number
+  bytesPerSecond?: number
+  transferredBytes?: number
+  totalBytes?: number
+  error?: string
+  lastChecked?: string
+  isPackaged: boolean
 }
 
 declare global {
