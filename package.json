@@ -10,7 +10,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node test/runner.mjs",
-    "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824' -ErrorAction SilentlyContinue | Stop-Process -Force; exit 0\" && npm run build && electron-builder --win nsis"
+    "clean": "powershell -Command \"Remove-Item -Recurse -Force release, out -ErrorAction SilentlyContinue\"",
+    "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
@@ -39,7 +40,8 @@
     "appId": "com.hello11824.desktop",
     "productName": "Hello 118:24",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "out/**/*",
@@ -49,6 +51,7 @@
       "node_modules/better-sqlite3/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -62,7 +65,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   }
 }
