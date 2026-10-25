@@ -153,7 +153,7 @@ export function initDatabase(): Database.Database {
   // Ensure default settings exist
   const defaultSettings: Record<string, string> = {
     pinned: 'true',
-    widget_mode: 'standard', // 'compact' or 'standard'
+    widget_mode: 'compact', // 'compact' or 'standard'
     launch_on_startup: 'true',
     start_minimized: 'false',
     notifications_enabled: 'true',

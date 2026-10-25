@@ -31,7 +31,11 @@ export function SettingsView({
   useEffect(() => {
     window.hello11824.getAllSettings().then(s => {
       if (s.launch_on_startup !== undefined) setLaunchAtLogin(s.launch_on_startup !== 'false')
-      if (s.start_minimized !== undefined) setStartMinimized(s.start_minimized === 'true')
+      if (s.start_minimized !== undefined) {
+        const min = s.start_minimized === 'true'
+        setStartMinimized(min)
+        setShowWidgetOnStartup(!min)
+      }
       if (s.notifications_enabled !== undefined) setNotificationsEnabled(s.notifications_enabled !== 'false')
       if (s.class_reminder_minutes !== undefined) setReminderInterval(`${s.class_reminder_minutes} minutes`)
     })
@@ -40,8 +44,17 @@ export function SettingsView({
   async function handleToggleStartup(login: boolean, minimized: boolean) {
     setLaunchAtLogin(login)
     setStartMinimized(minimized)
+    setShowWidgetOnStartup(!minimized)
     await window.hello11824.updateStartup(login, minimized)
     onShowMessage(login ? 'Set to launch at Windows login.' : 'Disabled launch at Windows login.')
+  }
+
+  async function handleToggleShowWidgetOnStartup(showWidget: boolean) {
+    setShowWidgetOnStartup(showWidget)
+    const minimized = !showWidget
+    setStartMinimized(minimized)
+    await window.hello11824.updateStartup(launchAtLogin, minimized)
+    onShowMessage(showWidget ? 'Widget will appear automatically on startup.' : 'Widget will start minimized to tray.')
   }
 
   async function handleToggleNotifications(enabled: boolean) {
@@ -92,7 +105,7 @@ export function SettingsView({
               <input
                 type="checkbox"
                 checked={showWidgetOnStartup}
-                onChange={e => setShowWidgetOnStartup(e.target.checked)}
+                onChange={e => handleToggleShowWidgetOnStartup(e.target.checked)}
               />
               <span className="slider" />
             </label>

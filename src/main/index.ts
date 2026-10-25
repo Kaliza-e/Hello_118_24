@@ -85,16 +85,28 @@ function ensureWindowWithinDisplayBounds(x: number, y: number, width: number, he
   }
 }
 
+function applyPinnedState(pinned: boolean) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.setAlwaysOnTop(pinned, pinned ? 'screen-saver' : 'normal')
+  if (pinned) {
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
+}
+
 function createWindow() {
-  const savedWidth = parseInt(getSetting('window_width') || '720', 10)
-  const savedHeight = parseInt(getSetting('window_height') || '470', 10)
+  const savedMode = getSetting('widget_mode') || 'compact'
+  const isCompact = savedMode === 'compact'
+  const defaultWidth = isCompact ? 720 : 940
+  const defaultHeight = isCompact ? 470 : 600
+  const savedWidth = parseInt(getSetting('window_width') || String(defaultWidth), 10)
+  const savedHeight = parseInt(getSetting('window_height') || String(defaultHeight), 10)
   const savedX = parseInt(getSetting('window_x') || '-9999', 10)
   const savedY = parseInt(getSetting('window_y') || '-9999', 10)
   const isPinned = getSetting('pinned') !== 'false'
 
   let initialBounds = {
-    width: isNaN(savedWidth) ? 720 : Math.max(500, savedWidth),
-    height: isNaN(savedHeight) ? 470 : Math.max(420, savedHeight),
+    width: isNaN(savedWidth) || savedWidth < 480 ? defaultWidth : savedWidth,
+    height: isNaN(savedHeight) || savedHeight < 420 ? defaultHeight : savedHeight,
     x: savedX,
     y: savedY
   }
@@ -126,10 +138,31 @@ function createWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
+    const wasOpenedAsHidden = app.getLoginItemSettings().wasOpenedAsHidden || process.argv.includes('--hidden')
     const startMinimized = getSetting('start_minimized') === 'true'
-    // In dev mode, always show the window so the developer sees the desktop app
-    if (!startMinimized || isDev) {
+
+    // If opened directly by user (or in dev), always show the widget immediately
+    if (!startMinimized || !wasOpenedAsHidden || isDev) {
       mainWindow?.show()
+      mainWindow?.focus()
+      if (isPinned) {
+        applyPinnedState(true)
+      }
+    }
+  })
+
+  // Ensure pinned topmost status sticks on Windows blur and show
+  mainWindow.on('show', () => {
+    const pinned = getSetting('pinned') !== 'false'
+    if (pinned) {
+      applyPinnedState(true)
+    }
+  })
+
+  mainWindow.on('blur', () => {
+    const pinned = getSetting('pinned') !== 'false'
+    if (pinned && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      applyPinnedState(true)
     }
   })
 
@@ -171,8 +204,13 @@ function updateTrayMenu() {
       label: 'Open Hello 118:24',
       click: () => {
         if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore()
           mainWindow.show()
           mainWindow.focus()
+          const pinned = getSetting('pinned') !== 'false'
+          if (pinned) {
+            applyPinnedState(true)
+          }
         }
       }
     },
@@ -199,7 +237,7 @@ function updateTrayMenu() {
       click: (item) => {
         const next = item.checked
         setSetting('pinned', String(next))
-        mainWindow?.setAlwaysOnTop(next)
+        applyPinnedState(next)
         mainWindow?.webContents.send('window:pinned-changed', next)
       }
     },
@@ -231,8 +269,12 @@ if (gotSingleInstanceLock) {
   app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
+      if (!mainWindow.isVisible()) mainWindow.show()
       mainWindow.focus()
+      const pinned = getSetting('pinned') !== 'false'
+      if (pinned) {
+        applyPinnedState(true)
+      }
     }
   })
 
@@ -258,6 +300,10 @@ if (gotSingleInstanceLock) {
           } else {
             mainWindow.show()
             mainWindow.focus()
+            const pinned = getSetting('pinned') !== 'false'
+            if (pinned) {
+              applyPinnedState(true)
+            }
           }
         }
       })
@@ -272,6 +318,11 @@ if (gotSingleInstanceLock) {
         createWindow()
       } else {
         mainWindow?.show()
+        mainWindow?.focus()
+        const pinned = getSetting('pinned') !== 'false'
+        if (pinned) {
+          applyPinnedState(true)
+        }
       }
     })
   })
@@ -294,7 +345,7 @@ ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:close', () => mainWindow?.hide())
 ipcMain.handle('window:toggle-pin', (_event, pinned: boolean) => {
   const next = Boolean(pinned)
-  mainWindow?.setAlwaysOnTop(next)
+  applyPinnedState(next)
   setSetting('pinned', String(next))
   updateTrayMenu()
   return next

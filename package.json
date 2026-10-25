@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node test/runner.mjs",
     "clean": "powershell -Command \"Remove-Item -Recurse -Force release, out -ErrorAction SilentlyContinue\"",
-    "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis"
+    "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 300; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
