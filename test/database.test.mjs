@@ -158,4 +158,71 @@ test('Database: Settings persistence and upsert', () => {
 
   setSetting('launch_on_startup', 'true')
   assert.equal(getSetting('launch_on_startup'), 'true')
+
+  setSetting('free_period_reminders_enabled', 'true')
+  assert.equal(getSetting('free_period_reminders_enabled'), 'true')
 })
+
+test('Database: Subject deletion and undo restoration', () => {
+  const db = createTestDb()
+
+  const insertClass = db.prepare(`
+    INSERT INTO classes (title, weekday, start_time, end_time, room, notes)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  const info = insertClass.run('Mobile App Development', 1, '11:20', '12:10', 'Lab 2', 'Instructor: Louis')
+  const insertedId = info.lastInsertRowid
+
+  // Verify class exists
+  const existing = db.prepare('SELECT * FROM classes WHERE id = ?').get(insertedId)
+  assert.ok(existing)
+  assert.equal(existing.title, 'Mobile App Development')
+
+  // Simulate user deletion
+  db.prepare('DELETE FROM classes WHERE id = ?').run(insertedId)
+  const afterDelete = db.prepare('SELECT * FROM classes WHERE id = ?').get(insertedId)
+  assert.equal(afterDelete, undefined, 'Subject should be deleted')
+
+  // Simulate Undo action restoration
+  const restore = db.prepare(`
+    INSERT INTO classes (title, weekday, start_time, end_time, room, notes)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  const restoredInfo = restore.run(
+    existing.title,
+    existing.weekday,
+    existing.start_time,
+    existing.end_time,
+    existing.room,
+    existing.notes
+  )
+  const restored = db.prepare('SELECT * FROM classes WHERE id = ?').get(restoredInfo.lastInsertRowid)
+
+  assert.ok(restored, 'Subject should be restored')
+  assert.equal(restored.title, existing.title)
+  assert.equal(restored.weekday, existing.weekday)
+  assert.equal(restored.start_time, existing.start_time)
+  assert.equal(restored.end_time, existing.end_time)
+  assert.equal(restored.room, existing.room)
+})
+
+test('Database: Task completed state toggles on and off persistently', () => {
+  const db = createTestDb()
+
+  const info = db.prepare('INSERT INTO tasks (title, completed) VALUES (?, ?)').run('Test toggle task', 0)
+  const id = info.lastInsertRowid
+
+  let task = db.prepare('SELECT completed FROM tasks WHERE id = ?').get(id)
+  assert.equal(task.completed, 0)
+
+  // Toggle on
+  db.prepare('UPDATE tasks SET completed = 1 WHERE id = ?').run(id)
+  task = db.prepare('SELECT completed FROM tasks WHERE id = ?').get(id)
+  assert.equal(task.completed, 1)
+
+  // Toggle off (unchecking)
+  db.prepare('UPDATE tasks SET completed = 0 WHERE id = ?').run(id)
+  task = db.prepare('SELECT completed FROM tasks WHERE id = ?').get(id)
+  assert.equal(task.completed, 0)
+})
+

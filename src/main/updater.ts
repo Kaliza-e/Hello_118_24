@@ -47,11 +47,11 @@ export function getUpdateStatus(): UpdateStatusInfo {
 export async function checkForUpdates(manual = false): Promise<UpdateStatusInfo> {
   status.lastChecked = new Date().toISOString()
 
-  // Development mode protection
+  // Development mode protection: guard against running update checks in development
   if (!app.isPackaged) {
     status = {
       ...status,
-      state: 'not-available',
+      state: 'idle',
       currentVersion: app.getVersion(),
       isPackaged: false,
       error: manual ? 'Development mode: Updates are only checked in packaged production builds.' : undefined
@@ -60,7 +60,7 @@ export async function checkForUpdates(manual = false): Promise<UpdateStatusInfo>
     return status
   }
 
-  // Graceful offline check
+  // Graceful offline check: check network status to handle offline mode
   if (!net.isOnline()) {
     status = {
       ...status,
@@ -85,11 +85,21 @@ export async function checkForUpdates(manual = false): Promise<UpdateStatusInfo>
   try {
     await autoUpdater.checkForUpdates()
   } catch (err: any) {
-    console.error('[AutoUpdater] Check failed:', err?.message || err)
+    const rawMsg = err?.message || String(err)
+    console.error('[AutoUpdater] Check failed:', rawMsg)
+
+    let friendlyError = rawMsg
+    if (/404|latest(-win|-mac|-linux)?\.ya?ml|Cannot find/i.test(rawMsg)) {
+      friendlyError =
+        'No published release found on GitHub (Kaliza-e/Hello_118_24). Once a release with installer assets is published, updates will download automatically.'
+    } else if (/timeout|ETIMEDOUT|ENOTFOUND|ERR_INTERNET_DISCONNECTED/i.test(rawMsg)) {
+      friendlyError = 'Could not reach GitHub Releases server. Please check your internet connection.'
+    }
+
     status = {
       ...status,
       state: 'error',
-      error: err?.message || 'Failed to check for updates from update server.',
+      error: friendlyError,
       currentVersion: app.getVersion(),
       isPackaged: true
     }
@@ -139,6 +149,9 @@ export function initUpdater(mainWindow: BrowserWindow): void {
   targetWindow = mainWindow
   status.currentVersion = app.getVersion()
   status.isPackaged = app.isPackaged
+
+  // Enable updater logging
+  autoUpdater.logger = console
 
   // Safe GitHub feed setup (public releases via HTTPS)
   try {
@@ -197,17 +210,43 @@ export function initUpdater(mainWindow: BrowserWindow): void {
   })
 
   autoUpdater.on('error', (err) => {
+    const rawMsg = err ? err.message : 'Unknown updater error'
+    let friendlyError = rawMsg
+    if (/404|latest(-win|-mac|-linux)?\.ya?ml|Cannot find/i.test(rawMsg)) {
+      friendlyError =
+        'No published release found on GitHub (Kaliza-e/Hello_118_24). Once a release with installer assets is published, updates will download automatically.'
+    }
     status.state = 'error'
-    status.error = err ? err.message : 'Unknown updater error'
+    status.error = friendlyError
     broadcastStatus()
   })
 
+  const validateSender = (event: Electron.IpcMainInvokeEvent) => {
+    if (!targetWindow || targetWindow.isDestroyed()) return false
+    return event.senderFrame === targetWindow.webContents.mainFrame
+  }
+
   // IPC Handlers
-  ipcMain.handle('updater:get-status', () => getUpdateStatus())
-  ipcMain.handle('updater:get-version', () => app.getVersion())
-  ipcMain.handle('updater:check', (_event, manual?: boolean) => checkForUpdates(Boolean(manual)))
-  ipcMain.handle('updater:download', () => startDownload())
-  ipcMain.handle('updater:install', () => quitAndInstall())
+  ipcMain.handle('updater:get-status', (event) => {
+    if (!validateSender(event)) throw new Error('Unauthorized IPC sender')
+    return getUpdateStatus()
+  })
+  ipcMain.handle('updater:get-version', (event) => {
+    if (!validateSender(event)) throw new Error('Unauthorized IPC sender')
+    return app.getVersion()
+  })
+  ipcMain.handle('updater:check', (event, manual?: boolean) => {
+    if (!validateSender(event)) throw new Error('Unauthorized IPC sender')
+    return checkForUpdates(Boolean(manual))
+  })
+  ipcMain.handle('updater:download', (event) => {
+    if (!validateSender(event)) throw new Error('Unauthorized IPC sender')
+    return startDownload()
+  })
+  ipcMain.handle('updater:install', (event) => {
+    if (!validateSender(event)) throw new Error('Unauthorized IPC sender')
+    return quitAndInstall()
+  })
 
   // Gentle delayed automatic check on production launch (15s after startup)
   if (app.isPackaged) {

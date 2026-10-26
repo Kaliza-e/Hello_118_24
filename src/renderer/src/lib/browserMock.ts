@@ -50,16 +50,36 @@ const DEFAULT_TASKS: Task[] = [
 ]
 
 export function createBrowserMockApi(): HelloAPI {
-  const modeListeners: Set<() => void> = new Set()
+  const modeListeners: Set<(mode?: 'compact' | 'standard') => void> = new Set()
   const pinListeners: Set<(pinned: boolean) => void> = new Set()
+  const maximizeListeners: Set<(isMax: boolean) => void> = new Set()
+  let isMaximizedState = false
 
   return {
+    platform: 'win32',
     async minimize() {
       console.log('[Browser Mock] minimize() called')
     },
 
+    async maximize() {
+      isMaximizedState = !isMaximizedState
+      maximizeListeners.forEach(cb => cb(isMaximizedState))
+      return isMaximizedState
+    },
+
+    async isMaximized() {
+      return isMaximizedState
+    },
+
     async hide() {
       console.log('[Browser Mock] hide() called')
+    },
+
+    onMaximizeChanged(callback: (isMax: boolean) => void) {
+      maximizeListeners.add(callback)
+      return () => {
+        maximizeListeners.delete(callback)
+      }
     },
 
     async togglePin(pinned: boolean) {
@@ -207,6 +227,36 @@ export function createBrowserMockApi(): HelloAPI {
       }
       saveToStorage(STORAGE_KEYS.TASKS, tasks)
       return count
+    },
+
+    async getFreeTimeSuggestion() {
+      const tasks = loadFromStorage<Task[]>(STORAGE_KEYS.TASKS, DEFAULT_TASKS)
+      const unfinished = tasks.filter(t => !t.completed)
+      const topTask = unfinished.find(t => t.priority === 'high') || unfinished[0] || null
+      return {
+        hasFreeTime: true,
+        freeMinutes: 35,
+        freeUntil: '15:30',
+        nextEventTitle: 'Web Development',
+        slotKey: 'mock-free-slot-1',
+        suggestedTask: topTask,
+        message: topTask
+          ? `You have 35 minutes free until 15:30 (Web Development). Good time to work on: "${topTask.title}".`
+          : 'You have 35 minutes free until 15:30. Want to plan something for this time?',
+        isSnoozed: false
+      }
+    },
+
+    async snoozeFreeTimeReminder(_minutes?: number) {
+      return true
+    },
+
+    async dismissFreeTimeReminder(_slotKey: string) {
+      return true
+    },
+
+    async completeSuggestedTask(taskId: number) {
+      return this.toggleTask(taskId, true)
     },
 
     async listSubjects(): Promise<SubjectItem[]> {

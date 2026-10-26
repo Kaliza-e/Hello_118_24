@@ -1,8 +1,10 @@
 {
   "name": "hello-118-24",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "Hello 118:24 — A personal Windows desktop companion for school, productivity, timetable management, and daily planning",
+  "description": "Hello 118:24 — A personal desktop companion for school, productivity, timetable management, and daily planning across Windows, macOS, and Linux",
+  "author": "Kaliza-e",
+  "license": "MIT",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -10,8 +12,12 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node test/runner.mjs",
-    "clean": "powershell -Command \"Remove-Item -Recurse -Force release, out -ErrorAction SilentlyContinue\"",
+    "clean": "node -e \"const fs = require('fs'); ['release', 'out'].forEach(d => { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} });\"",
+    "clean:win": "powershell -Command \"Remove-Item -Recurse -Force release, out -ErrorAction SilentlyContinue\"",
     "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 300; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis",
+    "package:mac": "npm run build && electron-builder --mac",
+    "package:linux": "npm run build && electron-builder --linux",
+    "package:all": "npm run build && electron-builder -mwl",
     "publish:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 300; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis --publish always"
   },
   "dependencies": {
@@ -22,8 +28,7 @@
     "pdf-parse": "^1.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tesseract.js": "^6.0.1",
-    "zod": "^3.24.1"
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
@@ -75,6 +80,80 @@
       "createStartMenuShortcut": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.education",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Education",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "desktop": {
+        "StartupWMClass": "Hello 118:24",
+        "Name": "Hello 118:24",
+        "Comment": "Personal desktop companion for school, productivity, timetable management, and daily planning"
+      }
+    },
+    "deb": {
+      "priority": "optional",
+      "depends": [
+        "libnotify4",
+        "libnss3",
+        "libasound2 | libasound2t64",
+        "libsecret-1-0"
+      ]
     }
   }
 }

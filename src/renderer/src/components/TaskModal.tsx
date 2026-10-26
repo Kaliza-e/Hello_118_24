@@ -14,6 +14,7 @@ interface TaskModalProps {
     dueTime?: string
     priority: 'low' | 'normal' | 'high'
     category?: string
+    estimatedMinutes?: number | null
   }) => Promise<void>
 }
 
@@ -24,6 +25,8 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
   const [dueTime, setDueTime] = useState('')
   const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal')
   const [category, setCategory] = useState('')
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | ''>('')
+  const [isCustomDuration, setIsCustomDuration] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -34,6 +37,9 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
       setDueTime(task.due_time || '')
       setPriority(task.priority || 'normal')
       setCategory(task.category || '')
+      const est = task.estimated_minutes ?? ''
+      setEstimatedMinutes(est)
+      setIsCustomDuration(est !== '' && ![15, 25, 30, 45, 60, 90].includes(Number(est)))
     } else {
       setTitle('')
       setDescription('')
@@ -41,6 +47,8 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
       setDueTime('')
       setPriority('normal')
       setCategory('')
+      setEstimatedMinutes('')
+      setIsCustomDuration(false)
     }
   }, [task, defaultDate, isOpen])
 
@@ -58,7 +66,8 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
         dueDate: dueDate || undefined,
         dueTime: dueTime || undefined,
         priority,
-        category: category.trim() || undefined
+        category: category.trim() || undefined,
+        estimatedMinutes: estimatedMinutes === '' ? null : Number(estimatedMinutes)
       })
       onClose()
     } finally {
@@ -146,6 +155,65 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
                   value={category}
                   onChange={e => setCategory(e.target.value)}
                 />
+              </div>
+            </div>
+
+            {/* Smart Free Time Estimation */}
+            <div className="input-group">
+              <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Estimated Duration</span>
+                <span style={{ fontSize: 10.5, color: 'var(--accent-purple)', fontWeight: 500 }}>
+                  Used for smart free-time reminders
+                </span>
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: isCustomDuration ? '1fr 1fr' : '1fr', gap: 8 }}>
+                <select
+                  className="select-field"
+                  value={isCustomDuration ? 'custom' : estimatedMinutes === '' ? '' : String(estimatedMinutes)}
+                  onChange={e => {
+                    const val = e.target.value
+                    if (val === 'custom') {
+                      setIsCustomDuration(true)
+                      if (estimatedMinutes === '') setEstimatedMinutes(20)
+                    } else if (val === '') {
+                      setIsCustomDuration(false)
+                      setEstimatedMinutes('')
+                    } else {
+                      setIsCustomDuration(false)
+                      setEstimatedMinutes(Number(val))
+                    }
+                  }}
+                >
+                  <option value="">No estimate (auto-fit)</option>
+                  <option value="15">15 minutes (Quick review / Flashcards)</option>
+                  <option value="25">25 minutes (Pomodoro / Short exercise)</option>
+                  <option value="30">30 minutes (Reading / Lab setup)</option>
+                  <option value="45">45 minutes (Assignment draft / Practice)</option>
+                  <option value="60">60 minutes (Deep study session)</option>
+                  <option value="90">90 minutes (Full exam practice)</option>
+                  <option value="custom">Custom duration...</option>
+                </select>
+
+                {isCustomDuration && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="number"
+                      min={5}
+                      max={480}
+                      step={5}
+                      className="input-field"
+                      placeholder="Minutes"
+                      value={estimatedMinutes}
+                      onChange={e => {
+                        const val = parseInt(e.target.value, 10)
+                        setEstimatedMinutes(isNaN(val) ? '' : Math.max(1, val))
+                      }}
+                      style={{ width: '100%' }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>min</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

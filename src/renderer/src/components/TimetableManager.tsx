@@ -4,11 +4,15 @@ import {
   Plus,
   Edit2,
   FileText,
-  Trash2
+  Trash2,
+  Clock,
+  Calendar
 } from 'lucide-react'
 import { ClassItem, CandidateClass, WEEKDAYS, SHORT_DAYS, ImportResult } from '../types'
 import { ImportReviewModal } from './ImportReviewModal'
-import { ClassModal } from './ClassModal'
+import { SubjectModal } from './SubjectModal'
+import { DeleteConfirmModal } from './DeleteConfirmModal'
+import { UndoToast } from './UndoToast'
 
 interface TimetableManagerProps {
   classes: ClassItem[]
@@ -17,24 +21,30 @@ interface TimetableManagerProps {
 }
 
 const DOT_COLORS = [
-  'var(--dot-cyan)',
-  'var(--dot-pink)',
   'var(--dot-blue)',
-  'var(--dot-orange)',
   'var(--dot-purple)',
-  'var(--dot-green)'
+  'var(--dot-orange)',
+  'var(--dot-green)',
+  'var(--dot-cyan)',
+  'var(--dot-pink)'
 ]
 
+interface DeletedClassUndoRecord {
+  classItem: ClassItem
+  dayName: string
+}
+
 export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: TimetableManagerProps) {
-  // Default to Tuesday as in screenshot, or today's weekday
-  const [selectedDay, setSelectedDay] = useState<number>(new Date().getDay() || 2)
+  const [selectedDay, setSelectedDay] = useState<number>(new Date().getDay() || 1)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [showClassModal, setShowClassModal] = useState(false)
+  const [showSubjectModal, setShowSubjectModal] = useState(false)
   const [editingClass, setEditingClass] = useState<ClassItem | null>(null)
-  const [lastImportInfo, setLastImportInfo] = useState<string>('Imported from timetable.pdf • Apr 25, 2025')
+  const [deletingClass, setDeletingClass] = useState<ClassItem | null>(null)
+  const [undoRecord, setUndoRecord] = useState<DeletedClassUndoRecord | null>(null)
+  const [lastImportInfo, setLastImportInfo] = useState<string>('Ready • Review and customize your weekly schedule')
 
-  // Classes for selected day
+  // Classes for selected day sorted by start_time
   const dayClasses = useMemo(() => {
     return classes
       .filter(c => c.weekday === selectedDay)
@@ -78,7 +88,14 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
     await onRefreshClasses()
   }
 
-  async function handleSaveClass(data: any) {
+  async function handleSaveSubject(data: {
+    title: string
+    weekday: number
+    startTime: string
+    endTime?: string
+    room?: string
+    notes?: string
+  }) {
     if (editingClass) {
       await window.hello11824.updateClass(editingClass.id, data)
       onShowMessage(`Updated "${data.title}"`)
@@ -89,11 +106,42 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
     await onRefreshClasses()
   }
 
-  async function handleDeleteClass(id: number) {
-    if (!confirm('Remove this subject?')) return
-    await window.hello11824.deleteClass(id)
+  function requestDelete(c: ClassItem) {
+    setDeletingClass(c)
+  }
+
+  async function confirmDelete() {
+    if (!deletingClass) return
+    const target = deletingClass
+    setDeletingClass(null)
+
+    await window.hello11824.deleteClass(target.id)
     await onRefreshClasses()
-    onShowMessage('Subject removed.')
+
+    setUndoRecord({
+      classItem: target,
+      dayName: WEEKDAYS[target.weekday]
+    })
+    onShowMessage(`Deleted "${target.title}"`)
+  }
+
+  async function handleUndoDelete() {
+    if (!undoRecord) return
+    const { classItem } = undoRecord
+
+    await window.hello11824.addClass({
+      title: classItem.title,
+      weekday: classItem.weekday,
+      startTime: classItem.start_time,
+      endTime: classItem.end_time || undefined,
+      room: classItem.room || undefined,
+      notes: classItem.notes || undefined,
+      color: classItem.color || undefined
+    })
+
+    setUndoRecord(null)
+    await onRefreshClasses()
+    onShowMessage(`Restored "${classItem.title}"`)
   }
 
   return (
@@ -107,10 +155,10 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
           </button>
           <button
             className="btn-secondary-pill"
-            style={{ width: 32, padding: 0, justifyContent: 'center' }}
+            style={{ width: 34, height: 32, padding: 0, justifyContent: 'center' }}
             onClick={() => {
               setEditingClass(null)
-              setShowClassModal(true)
+              setShowSubjectModal(true)
             }}
             title="Add subject manually"
           >
@@ -123,13 +171,29 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
       <div className="day-pills-row">
         {[1, 2, 3, 4, 5, 6, 0].map(dayIdx => {
           const isSelected = selectedDay === dayIdx
+          const count = classes.filter(c => c.weekday === dayIdx).length
           return (
             <button
               key={dayIdx}
               className={`day-pill-btn ${isSelected ? 'active' : ''}`}
               onClick={() => setSelectedDay(dayIdx)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              {SHORT_DAYS[dayIdx]}
+              <span>{SHORT_DAYS[dayIdx]}</span>
+              {count > 0 && (
+                <span
+                  style={{
+                    background: isSelected ? 'rgba(124, 58, 237, 0.2)' : 'var(--border-subtle)',
+                    color: isSelected ? 'var(--accent-purple)' : 'var(--text-secondary)',
+                    borderRadius: 999,
+                    padding: '0 6px',
+                    fontSize: 10,
+                    fontWeight: 600
+                  }}
+                >
+                  {count}
+                </span>
+              )}
             </button>
           )
         })}
@@ -140,27 +204,27 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
         {/* Table Header */}
         <div
           className="table-row table-header"
-          style={{ gridTemplateColumns: '1.2fr 1.8fr 1.2fr 40px' }}
+          style={{ gridTemplateColumns: '1.2fr 1.8fr 1.2fr 60px' }}
         >
           <span>Time</span>
           <span>Subject</span>
           <span>Room</span>
-          <span style={{ textAlign: 'right' }}></span>
+          <span style={{ textAlign: 'right' }}>Actions</span>
         </div>
 
         {/* Rows */}
         {dayClasses.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
-            No subjects scheduled for {WEEKDAYS[selectedDay]}. Click "+" to add one!
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12.5 }}>
+            No subjects scheduled for {WEEKDAYS[selectedDay]}. Click <strong>+</strong> to add one!
           </div>
         ) : (
           dayClasses.map((c, i) => (
             <div
               key={c.id || i}
               className="table-row"
-              style={{ gridTemplateColumns: '1.2fr 1.8fr 1.2fr 40px' }}
+              style={{ gridTemplateColumns: '1.2fr 1.8fr 1.2fr 60px', alignItems: 'center' }}
             >
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 500, fontSize: 12 }}>
                 {c.start_time} {c.end_time ? `– ${c.end_time}` : ''}
               </span>
 
@@ -169,24 +233,32 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
                   className="class-dot"
                   style={{ background: DOT_COLORS[i % DOT_COLORS.length] }}
                 />
-                <span style={{ color: '#fff', fontWeight: 500 }}>{c.title}</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{c.title}</span>
               </div>
 
-              <span style={{ color: 'var(--text-secondary)' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 11.5 }}>
                 {c.room || '—'}
               </span>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                 <button
                   className="win-btn"
-                  style={{ width: 22, height: 22 }}
+                  style={{ width: 24, height: 24 }}
                   title="Edit subject"
                   onClick={() => {
                     setEditingClass(c)
-                    setShowClassModal(true)
+                    setShowSubjectModal(true)
                   }}
                 >
                   <Edit2 size={12} color="var(--text-muted)" />
+                </button>
+                <button
+                  className="win-btn"
+                  style={{ width: 24, height: 24 }}
+                  title="Delete subject"
+                  onClick={() => requestDelete(c)}
+                >
+                  <Trash2 size={12} color="var(--priority-high-text)" />
                 </button>
               </div>
             </div>
@@ -200,7 +272,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          background: 'rgba(12, 18, 34, 0.65)',
+          background: 'var(--bg-card-inner)',
           border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-md)',
           padding: '8px 12px',
@@ -209,7 +281,7 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
           marginTop: 2
         }}
       >
-        <FileText size={13} color="var(--accent-cyan)" />
+        <FileText size={13} color="var(--accent-purple)" />
         <span>{lastImportInfo}</span>
       </div>
 
@@ -222,13 +294,35 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
       />
 
       {/* Subject Form Modal */}
-      <ClassModal
-        isOpen={showClassModal}
-        onClose={() => setShowClassModal(false)}
-        classItem={editingClass}
+      <SubjectModal
+        isOpen={showSubjectModal}
+        onClose={() => setShowSubjectModal(false)}
+        subjectItem={editingClass}
         defaultWeekday={selectedDay}
-        onSave={handleSaveClass}
+        onSave={handleSaveSubject}
       />
+
+      {/* Safe Deletion Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={Boolean(deletingClass)}
+        title="Delete Subject"
+        subjectTitle={deletingClass?.title || ''}
+        timeRange={deletingClass ? `${deletingClass.start_time}${deletingClass.end_time ? ` – ${deletingClass.end_time}` : ''}` : undefined}
+        dayName={deletingClass ? WEEKDAYS[deletingClass.weekday] : undefined}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeletingClass(null)}
+      />
+
+      {/* Undo Notification Toast (60 seconds) */}
+      {undoRecord && (
+        <UndoToast
+          message={`Subject deleted: "${undoRecord.classItem.title}"`}
+          details={`(${undoRecord.classItem.start_time}${undoRecord.classItem.end_time ? ` – ${undoRecord.classItem.end_time}` : ''}) from ${undoRecord.dayName}`}
+          onUndo={handleUndoDelete}
+          onDismiss={() => setUndoRecord(null)}
+          durationMs={60_000}
+        />
+      )}
     </div>
   )
 }

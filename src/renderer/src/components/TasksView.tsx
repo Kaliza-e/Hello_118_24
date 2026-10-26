@@ -4,7 +4,8 @@ import {
   Check,
   MoreHorizontal,
   Edit2,
-  Trash2
+  Trash2,
+  Clock
 } from 'lucide-react'
 import { Task, toDateKey } from '../types'
 import { TaskModal } from './TaskModal'
@@ -138,7 +139,7 @@ export function TasksView({
                 {/* Title */}
                 <span
                   style={{
-                    color: t.completed ? 'var(--text-muted)' : '#fff',
+                    color: t.completed ? 'var(--text-muted)' : 'var(--text-primary)',
                     textDecoration: t.completed ? 'line-through' : 'none',
                     fontWeight: 500,
                     overflow: 'hidden',
@@ -149,10 +150,20 @@ export function TasksView({
                   {t.title}
                 </span>
 
-                {/* Priority Pill */}
-                <span className={`priority-badge-pill ${priorityClass}`} style={{ justifySelf: 'end' }}>
-                  {priorityLabel}
-                </span>
+                {/* Priority & Duration Badges */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifySelf: 'end' }}>
+                  {t.estimated_minutes ? (
+                    <span
+                      className="duration-badge-pill"
+                      title={`Estimated time: ${t.estimated_minutes} minutes`}
+                    >
+                      <Clock size={10} /> {t.estimated_minutes}m
+                    </span>
+                  ) : null}
+                  <span className={`priority-badge-pill ${priorityClass}`}>
+                    {priorityLabel}
+                  </span>
+                </div>
 
                 {/* Due Time */}
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)', justifySelf: 'end', minWidth: 80, textAlign: 'right' }}>

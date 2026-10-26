@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, copyFileSync, readdirSync, unlinkSync } from 'node:fs'
 
 export interface TaskRecord {
   id: number
@@ -13,6 +13,7 @@ export interface TaskRecord {
   completed: number
   category: string | null
   class_id: number | null
+  estimated_minutes?: number | null
   created_at: string
 }
 
@@ -48,6 +49,43 @@ export interface ImportHistoryRecord {
 
 let db: Database.Database
 
+// Creates an automated snapshot backup of the current database into userData/backups/
+export function createDatabaseBackup(): string | null {
+  try {
+    const dir = app.getPath('userData')
+    const dbPath = join(dir, 'hello11824.sqlite')
+    if (!existsSync(dbPath)) return null
+
+    const backupsDir = join(dir, 'backups')
+    if (!existsSync(backupsDir)) {
+      mkdirSync(backupsDir, { recursive: true })
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const backupPath = join(backupsDir, `hello11824-backup-${timestamp}.sqlite`)
+    copyFileSync(dbPath, backupPath)
+
+    // Maintain a rolling window of the last 5 automated backups
+    const existing = readdirSync(backupsDir)
+      .filter(f => f.startsWith('hello11824-backup-') && f.endsWith('.sqlite'))
+      .sort()
+      .reverse()
+
+    if (existing.length > 5) {
+      for (const oldFile of existing.slice(5)) {
+        try {
+          unlinkSync(join(backupsDir, oldFile))
+        } catch {}
+      }
+    }
+
+    return backupPath
+  } catch (err) {
+    console.error('Failed to create database backup:', err)
+    return null
+  }
+}
+
 export function getDatabase(): Database.Database {
   if (!db) {
     initDatabase()
@@ -82,9 +120,40 @@ export function initDatabase(): Database.Database {
     }
   }
 
-  db = new Database(dbPath)
+  try {
+    db = new Database(dbPath)
+    // Run integrity check
+    const integrity = db.pragma('integrity_check') as Array<{ integrity_check: string }> | undefined
+    if (integrity && integrity[0] && integrity[0].integrity_check !== 'ok') {
+      console.warn('Database integrity check warning:', integrity)
+    }
+  } catch (err) {
+    console.error('Failed to open database, attempting recovery from latest backup:', err)
+    const backupsDir = join(dir, 'backups')
+    let recovered = false
+    if (existsSync(backupsDir)) {
+      const backups = readdirSync(backupsDir)
+        .filter(f => f.startsWith('hello11824-backup-') && f.endsWith('.sqlite'))
+        .sort()
+        .reverse()
+      if (backups[0]) {
+        try {
+          copyFileSync(join(backupsDir, backups[0]), dbPath)
+          db = new Database(dbPath)
+          recovered = true
+        } catch {}
+      }
+    }
+    if (!recovered) {
+      db = new Database(dbPath)
+    }
+  }
+
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+
+  // Create a backup snapshot before migrations
+  createDatabaseBackup()
 
   // Run schema migrations
   db.exec(`
@@ -150,6 +219,18 @@ export function initDatabase(): Database.Database {
     `)
   }
 
+  if (currentVersion < 2) {
+    try {
+      const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>
+      if (!taskCols.some(col => col.name === 'estimated_minutes')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER;`)
+      }
+      db.exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (2);`)
+    } catch (err) {
+      console.error('Error running migration v2:', err)
+    }
+  }
+
   // Ensure default settings exist
   const defaultSettings: Record<string, string> = {
     pinned: 'true',
@@ -159,6 +240,12 @@ export function initDatabase(): Database.Database {
     notifications_enabled: 'true',
     class_reminder_minutes: '10',
     task_reminder_enabled: 'true',
+    free_period_reminders_enabled: 'true',
+    free_reminder_min_minutes: '20',
+    free_reminder_days: 'all',
+    quiet_hours_enabled: 'true',
+    quiet_hours_start: '21:00',
+    quiet_hours_end: '07:00',
     verse_visible: 'true'
   }
 
@@ -222,16 +309,18 @@ export function addTask(payload: {
   priority?: 'low' | 'normal' | 'high'
   category?: string
   classId?: number
+  estimatedMinutes?: number | null
 }): TaskRecord {
   const title = (payload.title || '').trim().slice(0, 240)
   if (!title) {
     throw new Error('Task title cannot be empty')
   }
   const priority = ['low', 'normal', 'high'].includes(payload.priority || '') ? payload.priority! : 'normal'
+  const estMins = typeof payload.estimatedMinutes === 'number' && !isNaN(payload.estimatedMinutes) ? payload.estimatedMinutes : null
   const d = getDatabase()
   const info = d.prepare(`
-    INSERT INTO tasks (title, description, due_date, due_time, priority, category, class_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (title, description, due_date, due_time, priority, category, class_id, estimated_minutes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     title,
     payload.description?.trim() || null,
@@ -239,7 +328,8 @@ export function addTask(payload: {
     payload.dueTime || null,
     priority,
     payload.category?.trim() || null,
-    payload.classId || null
+    payload.classId || null,
+    estMins
   )
   return d.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid) as TaskRecord
 }
@@ -253,6 +343,7 @@ export function updateTask(id: number, payload: Partial<{
   completed: boolean
   category: string | null
   classId: number | null
+  estimatedMinutes: number | null
 }>): TaskRecord {
   const d = getDatabase()
   const existing = d.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRecord | undefined
@@ -268,12 +359,13 @@ export function updateTask(id: number, payload: Partial<{
   const nextCompleted = payload.completed !== undefined ? (payload.completed ? 1 : 0) : existing.completed
   const nextCategory = payload.category !== undefined ? payload.category : existing.category
   const nextClassId = payload.classId !== undefined ? payload.classId : existing.class_id
+  const nextEstMins = payload.estimatedMinutes !== undefined ? payload.estimatedMinutes : (existing.estimated_minutes ?? null)
 
   d.prepare(`
     UPDATE tasks 
-    SET title = ?, description = ?, due_date = ?, due_time = ?, priority = ?, completed = ?, category = ?, class_id = ?
+    SET title = ?, description = ?, due_date = ?, due_time = ?, priority = ?, completed = ?, category = ?, class_id = ?, estimated_minutes = ?
     WHERE id = ?
-  `).run(nextTitle, nextDesc, nextDueDate, nextDueTime, nextPriority, nextCompleted, nextCategory, nextClassId, id)
+  `).run(nextTitle, nextDesc, nextDueDate, nextDueTime, nextPriority, nextCompleted, nextCategory, nextClassId, nextEstMins, id)
 
   return d.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRecord
 }
@@ -528,16 +620,35 @@ export function importAllData(data: {
   dailyPlans?: DailyPlanRecord[]
   settings?: Record<string, string>
 }): boolean {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid backup file: Root must be a valid JSON object')
+  }
+
+  // Preserve current user data state before applying backup
+  createDatabaseBackup()
+
   const d = getDatabase()
   const restoreTx = d.transaction(() => {
     if (Array.isArray(data.tasks)) {
       d.prepare('DELETE FROM tasks').run()
       const insertTask = d.prepare(`
-        INSERT INTO tasks (id, title, description, due_date, due_time, priority, completed, category, class_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tasks (id, title, description, due_date, due_time, priority, completed, category, class_id, estimated_minutes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       for (const t of data.tasks) {
-        insertTask.run(t.id, t.title, t.description, t.due_date, t.due_time, t.priority, t.completed, t.category, t.class_id, t.created_at)
+        if (!t || typeof t !== 'object' || !t.title || typeof t.title !== 'string') continue
+        const safeId = typeof t.id === 'number' && Number.isInteger(t.id) ? t.id : null
+        const safeTitle = t.title.trim().slice(0, 240)
+        const safeDesc = typeof t.description === 'string' ? t.description.slice(0, 1000) : null
+        const safeDueDate = typeof t.due_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.due_date) ? t.due_date : null
+        const safeDueTime = typeof t.due_time === 'string' && /^\d{2}:\d{2}$/.test(t.due_time) ? t.due_time : null
+        const safePriority = ['low', 'normal', 'high'].includes(t.priority) ? t.priority : 'normal'
+        const safeCompleted = t.completed ? 1 : 0
+        const safeCategory = typeof t.category === 'string' ? t.category.slice(0, 60) : null
+        const safeClassId = typeof t.class_id === 'number' && Number.isInteger(t.class_id) ? t.class_id : null
+        const safeEstMins = typeof t.estimated_minutes === 'number' && Number.isInteger(t.estimated_minutes) ? t.estimated_minutes : null
+        const safeCreatedAt = typeof t.created_at === 'string' ? t.created_at : new Date().toISOString()
+        insertTask.run(safeId, safeTitle, safeDesc, safeDueDate, safeDueTime, safePriority, safeCompleted, safeCategory, safeClassId, safeEstMins, safeCreatedAt)
       }
     }
 
@@ -548,7 +659,17 @@ export function importAllData(data: {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       for (const c of data.classes) {
-        insertClass.run(c.id, c.title, c.weekday, c.start_time, c.end_time, c.room, c.notes, c.color || null, c.created_at)
+        if (!c || typeof c !== 'object' || !c.title || typeof c.title !== 'string') continue
+        const safeId = typeof c.id === 'number' && Number.isInteger(c.id) ? c.id : null
+        const safeTitle = c.title.trim().slice(0, 160)
+        const safeWeekday = Number.isInteger(c.weekday) && c.weekday >= 0 && c.weekday <= 6 ? c.weekday : 1
+        const safeStartTime = typeof c.start_time === 'string' && /^\d{2}:\d{2}$/.test(c.start_time) ? c.start_time : '08:00'
+        const safeEndTime = typeof c.end_time === 'string' && /^\d{2}:\d{2}$/.test(c.end_time) ? c.end_time : null
+        const safeRoom = typeof c.room === 'string' ? c.room.slice(0, 80) : null
+        const safeNotes = typeof c.notes === 'string' ? c.notes.slice(0, 500) : null
+        const safeColor = typeof c.color === 'string' ? c.color.slice(0, 40) : null
+        const safeCreatedAt = typeof c.created_at === 'string' ? c.created_at : new Date().toISOString()
+        insertClass.run(safeId, safeTitle, safeWeekday, safeStartTime, safeEndTime, safeRoom, safeNotes, safeColor, safeCreatedAt)
       }
     }
 
@@ -559,14 +680,23 @@ export function importAllData(data: {
         VALUES (?, ?, ?, ?, ?)
       `)
       for (const p of data.dailyPlans) {
-        insertPlan.run(p.plan_date, p.notes, p.materials_checked, p.created_at, p.updated_at)
+        if (!p || typeof p !== 'object' || !p.plan_date || typeof p.plan_date !== 'string') continue
+        const safePlanDate = /^\d{4}-\d{2}-\d{2}$/.test(p.plan_date) ? p.plan_date : null
+        if (!safePlanDate) continue
+        const safeNotes = typeof p.notes === 'string' ? p.notes.slice(0, 2000) : null
+        const safeMaterials = typeof p.materials_checked === 'string' ? p.materials_checked : '[]'
+        const safeCreatedAt = typeof p.created_at === 'string' ? p.created_at : new Date().toISOString()
+        const safeUpdatedAt = typeof p.updated_at === 'string' ? p.updated_at : new Date().toISOString()
+        insertPlan.run(safePlanDate, safeNotes, safeMaterials, safeCreatedAt, safeUpdatedAt)
       }
     }
 
     if (data.settings && typeof data.settings === 'object') {
       const insertSetting = d.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
       for (const [k, v] of Object.entries(data.settings)) {
-        insertSetting.run(k, String(v))
+        if (typeof k === 'string' && k.length <= 80 && typeof v === 'string') {
+          insertSetting.run(k, v.slice(0, 500))
+        }
       }
     }
   })

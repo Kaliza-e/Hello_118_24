@@ -6,7 +6,9 @@ import {
   BarChart3,
   Settings as SettingsIcon,
   Home,
-  X
+  X,
+  Heart,
+  CalendarCheck
 } from 'lucide-react'
 import { Task, ClassItem, ActiveTab, toDateKey } from './types'
 import { TitleBar } from './components/TitleBar'
@@ -25,6 +27,7 @@ export default function App() {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [pinned, setPinned] = useState(true)
   const [widgetMode, setWidgetMode] = useState<'compact' | 'standard'>('compact')
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [message, setMessage] = useState('')
   const [today, setToday] = useState(new Date())
 
@@ -34,27 +37,29 @@ export default function App() {
 
   // Modals
   const [showGlobalTaskModal, setShowGlobalTaskModal] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showGlobalClassModal, setShowGlobalClassModal] = useState(false)
 
   // Dynamic live clock ticker
   useEffect(() => {
     const clockTimer = setInterval(() => {
       setToday(new Date())
-    }, 30_000)
+    }, 15_000)
     return () => clearInterval(clockTimer)
   }, [])
 
-  // Initial data loading from SQLite / API
+  // Initial data loading from SQLite
   const loadData = useCallback(async () => {
     try {
       const api = window.hello11824
       if (!api) return
 
-      const [tList, cList, pinSetting, modeSetting] = await Promise.all([
+      const [tList, cList, pinSetting, modeSetting, themeSetting] = await Promise.all([
         api.listTasks(),
         api.listClasses(),
         api.getSetting('pinned'),
-        api.getSetting('widget_mode')
+        api.getSetting('widget_mode'),
+        api.getSetting('theme')
       ])
 
       setTasks(tList || [])
@@ -66,6 +71,12 @@ export default function App() {
       if (modeSetting === 'compact' || modeSetting === 'standard') {
         setWidgetMode(modeSetting)
       }
+      if (themeSetting === 'light' || themeSetting === 'dark') {
+        setTheme(themeSetting)
+        document.documentElement.setAttribute('data-theme', themeSetting)
+      } else {
+        document.documentElement.setAttribute('data-theme', 'dark')
+      }
     } catch (err) {
       console.error('Failed to load data:', err)
       setMessage('Could not load saved data. Restart Hello 118:24 and try again.')
@@ -75,8 +86,12 @@ export default function App() {
   useEffect(() => {
     loadData()
 
-    const unsubMode = window.hello11824?.onModeChanged?.(() => {
-      setWidgetMode(prev => (prev === 'compact' ? 'standard' : 'compact'))
+    const unsubMode = window.hello11824?.onModeChanged?.((mode?: 'compact' | 'standard') => {
+      if (mode) {
+        setWidgetMode(mode)
+      } else {
+        setWidgetMode(prev => (prev === 'compact' ? 'standard' : 'compact'))
+      }
     })
 
     const unsubPin = window.hello11824?.onPinnedChanged?.((next: boolean) => {
@@ -89,7 +104,6 @@ export default function App() {
       }
     })
 
-    // Check initial status on mount
     window.hello11824?.getUpdateStatus?.().then(status => {
       if (status?.state === 'downloaded' && status.availableVersion) {
         setDownloadedUpdateVersion(status.availableVersion)
@@ -125,9 +139,23 @@ export default function App() {
     await window.hello11824.setMode(next)
   }, [widgetMode])
 
+  const handleToggleTheme = useCallback(async () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    document.documentElement.setAttribute('data-theme', next)
+    await window.hello11824.setSetting('theme', next)
+  }, [theme])
+
+  const handleSetTheme = useCallback(async (newTheme: 'dark' | 'light') => {
+    setTheme(newTheme)
+    document.documentElement.setAttribute('data-theme', newTheme)
+    await window.hello11824.setSetting('theme', newTheme)
+  }, [])
+
   const handleToggleTask = useCallback(
     async (task: Task) => {
-      await window.hello11824.toggleTask(task.id, !task.completed)
+      const nextCompleted = !Boolean(task.completed)
+      await window.hello11824.toggleTask(task.id, nextCompleted)
       await refreshTasks()
     },
     [refreshTasks]
@@ -142,13 +170,24 @@ export default function App() {
     [refreshTasks]
   )
 
-  const handleCreateTask = useCallback(
+  const handleOpenTaskForEdit = useCallback((task: Task) => {
+    setEditingTask(task)
+    setShowGlobalTaskModal(true)
+  }, [])
+
+  const handleSaveGlobalTask = useCallback(
     async (taskData: any) => {
-      await window.hello11824.addTask(taskData)
+      if (editingTask) {
+        await window.hello11824.updateTask(editingTask.id, taskData)
+        setMessage(`Updated "${taskData.title}"`)
+      } else {
+        await window.hello11824.addTask(taskData)
+        setMessage(`Added "${taskData.title}"`)
+      }
+      setEditingTask(null)
       await refreshTasks()
-      setMessage(`Added "${taskData.title}"`)
     },
-    [refreshTasks]
+    [editingTask, refreshTasks]
   )
 
   const handleCreateClass = useCallback(
@@ -160,38 +199,41 @@ export default function App() {
     [refreshClasses]
   )
 
-  const showCompactTodayWidget = widgetMode === 'compact' && activeTab === 'today'
+  const isCompactMode = widgetMode === 'compact'
 
   return (
-    <div className={`widget-window mode-${widgetMode}`}>
-      {/* Titlebar */}
+    <div className={`widget-window mode-${widgetMode}`} data-theme={theme}>
+      {/* Titlebar with real brand icon and theme switcher */}
       <TitleBar
         pinned={pinned}
         onTogglePin={handleTogglePin}
         widgetMode={widgetMode}
         onToggleMode={handleToggleMode}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
-      {/* Main Container: Either Compact 2-Card Layout or Sidebar Dashboard Layout */}
-      {showCompactTodayWidget ? (
-        // ================= COMPACT FLOATING WIDGET VIEW (Top of Screenshot) =================
+      {/* Main Container: Compact Floating Widget or Full Application Dashboard */}
+      {isCompactMode ? (
+        // ================= COMPACT FLOATING WIDGET VIEW =================
         <div className="widget-body-compact">
           {message && (
             <div
               style={{
-                background: 'rgba(37, 99, 235, 0.2)',
-                border: '1px solid rgba(59, 130, 246, 0.4)',
+                background: 'var(--accent-purple-bg)',
+                border: '1px solid var(--border-focus)',
                 borderRadius: 'var(--radius-sm)',
                 padding: '6px 10px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 fontSize: 11.5,
-                color: '#fff'
+                color: 'var(--text-primary)'
               }}
             >
               <span>{message}</span>
               <button
+                type="button"
                 onClick={() => setMessage('')}
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               >
@@ -200,104 +242,99 @@ export default function App() {
             </div>
           )}
 
-          {/* Side-by-Side Cards (Today's Schedule + Today's Tasks) */}
           <TodayView
             today={today}
             classes={classes}
             tasks={tasks}
+            isCompact={true}
             onToggleTask={handleToggleTask}
-            onNavigate={setActiveTab}
-            onOpenTaskModal={() => setShowGlobalTaskModal(true)}
+            onNavigate={tab => {
+              setActiveTab(tab)
+              handleToggleMode()
+            }}
+            onOpenTaskModal={() => {
+              setEditingTask(null)
+              setShowGlobalTaskModal(true)
+            }}
             onOpenClassModal={() => setShowGlobalClassModal(true)}
+            onExpandApp={handleToggleMode}
+            onOpenTaskDetails={handleOpenTaskForEdit}
+            onRefreshTasks={refreshTasks}
+            onShowMessage={setMessage}
           />
-
-          {/* Bottom Pill Navigation Bar */}
-          <nav className="widget-bottom-nav">
-            <div className="nav-pill-group">
-              <button
-                className="nav-pill-btn"
-                onClick={() => setActiveTab('timetable')}
-              >
-                <CalendarDays size={13} /> Timetable
-              </button>
-
-              <button
-                className="nav-pill-btn"
-                onClick={() => setActiveTab('tasks')}
-              >
-                <ListTodo size={13} /> Tasks
-              </button>
-
-              <button
-                className="nav-pill-btn"
-                onClick={() => setActiveTab('plan')}
-              >
-                <Sparkles size={13} /> Tomorrow
-              </button>
-
-              <button
-                className="nav-pill-btn"
-                onClick={() => setActiveTab('weekly')}
-              >
-                <BarChart3 size={13} /> Weekly
-              </button>
-            </div>
-
-            <button
-              className="nav-settings-btn"
-              title="Settings"
-              onClick={() => setActiveTab('settings')}
-            >
-              <SettingsIcon size={14} />
-            </button>
-          </nav>
         </div>
       ) : (
-        // ================= EXPANDED DASHBOARD VIEW (Panels 1 to 6 in Screenshot) =================
+        // ================= FULL APPLICATION DASHBOARD VIEW =================
         <div className="dashboard-layout">
-          {/* Left Sidebar */}
+          {/* Left Sidebar without duplicate stacked branding */}
           <aside className="dashboard-sidebar">
-            <button
-              className={`sidebar-nav-item ${activeTab === 'today' ? 'active' : ''}`}
-              onClick={() => setActiveTab('today')}
-            >
-              <Home size={14} /> Home
-            </button>
+            {/* Motivational Quote in Sidebar with Tagline */}
+            <div className="sidebar-quote-card">
+              <span className="sidebar-quote-tag">Plan • Study • Achieve</span>
+              <p>“Small steps every day create big results.”</p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <Heart size={12} fill="var(--accent-purple)" color="var(--accent-purple)" />
+              </div>
+            </div>
 
-            <button
-              className={`sidebar-nav-item ${activeTab === 'timetable' ? 'active' : ''}`}
-              onClick={() => setActiveTab('timetable')}
-            >
-              <CalendarDays size={14} /> Timetable
-            </button>
+            {/* Navigation links */}
+            <nav className="sidebar-nav-list">
+              <button
+                type="button"
+                className={`sidebar-nav-item ${activeTab === 'today' ? 'active' : ''}`}
+                onClick={() => setActiveTab('today')}
+              >
+                <Home size={15} /> Home
+              </button>
 
-            <button
-              className={`sidebar-nav-item ${activeTab === 'tasks' ? 'active' : ''}`}
-              onClick={() => setActiveTab('tasks')}
-            >
-              <ListTodo size={14} /> Tasks
-            </button>
+              <button
+                type="button"
+                className={`sidebar-nav-item ${activeTab === 'timetable' ? 'active' : ''}`}
+                onClick={() => setActiveTab('timetable')}
+              >
+                <CalendarDays size={15} /> Timetable
+              </button>
 
-            <button
-              className={`sidebar-nav-item ${activeTab === 'plan' ? 'active' : ''}`}
-              onClick={() => setActiveTab('plan')}
-            >
-              <Sparkles size={14} /> Tomorrow
-            </button>
+              <button
+                type="button"
+                className={`sidebar-nav-item ${activeTab === 'tasks' ? 'active' : ''}`}
+                onClick={() => setActiveTab('tasks')}
+              >
+                <ListTodo size={15} /> Tasks
+              </button>
 
-            <button
-              className={`sidebar-nav-item ${activeTab === 'weekly' ? 'active' : ''}`}
-              onClick={() => setActiveTab('weekly')}
-            >
-              <BarChart3 size={14} /> Weekly
-            </button>
+              <button
+                type="button"
+                className={`sidebar-nav-item ${activeTab === 'plan' ? 'active' : ''}`}
+                onClick={() => setActiveTab('plan')}
+              >
+                <Sparkles size={15} /> Tomorrow
+              </button>
 
-            <button
-              className={`sidebar-nav-item ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')}
-            >
-              <SettingsIcon size={14} /> Settings
-            </button>
+              <button
+                type="button"
+                className={`sidebar-nav-item ${activeTab === 'weekly' ? 'active' : ''}`}
+                onClick={() => setActiveTab('weekly')}
+              >
+                <BarChart3 size={15} /> Weekly
+              </button>
+
+              <button
+                type="button"
+                className={`sidebar-nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+                onClick={() => setActiveTab('settings')}
+              >
+                <SettingsIcon size={15} /> Settings
+              </button>
+            </nav>
+
+            {/* Bottom discipline quote */}
+            <div className="sidebar-footer-quote">
+              <p>“Discipline today builds the freedom you want tomorrow.”</p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <Heart size={12} color="var(--accent-purple)" />
+              </div>
+            </div>
           </aside>
 
           {/* Right Main Content */}
@@ -305,19 +342,20 @@ export default function App() {
             {message && (
               <div
                 style={{
-                  background: 'rgba(37, 99, 235, 0.2)',
-                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  background: 'var(--accent-purple-bg)',
+                  border: '1px solid var(--border-focus)',
                   borderRadius: 'var(--radius-sm)',
                   padding: '6px 12px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   fontSize: 12,
-                  color: '#fff'
+                  color: 'var(--text-primary)'
                 }}
               >
                 <span>{message}</span>
                 <button
+                  type="button"
                   onClick={() => setMessage('')}
                   style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                 >
@@ -361,10 +399,17 @@ export default function App() {
                 today={today}
                 classes={classes}
                 tasks={tasks}
+                isCompact={false}
                 onToggleTask={handleToggleTask}
                 onNavigate={setActiveTab}
-                onOpenTaskModal={() => setShowGlobalTaskModal(true)}
+                onOpenTaskModal={() => {
+                  setEditingTask(null)
+                  setShowGlobalTaskModal(true)
+                }}
                 onOpenClassModal={() => setShowGlobalClassModal(true)}
+                onOpenTaskDetails={handleOpenTaskForEdit}
+                onRefreshTasks={refreshTasks}
+                onShowMessage={setMessage}
               />
             )}
 
@@ -415,6 +460,8 @@ export default function App() {
                 onTogglePin={handleTogglePin}
                 widgetMode={widgetMode}
                 onToggleMode={handleToggleMode}
+                theme={theme}
+                onThemeChange={handleSetTheme}
                 onRefreshAll={async () => {
                   await Promise.all([refreshTasks(), refreshClasses()])
                 }}
@@ -425,12 +472,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Global Add Task Modal */}
+      {/* Global Add / Edit Task Modal */}
       <TaskModal
-        isOpen={showGlobalTaskModal}
-        onClose={() => setShowGlobalTaskModal(false)}
+        isOpen={showGlobalTaskModal || editingTask !== null}
+        onClose={() => {
+          setShowGlobalTaskModal(false)
+          setEditingTask(null)
+        }}
+        task={editingTask}
         defaultDate={toDateKey(today)}
-        onSave={handleCreateTask}
+        onSave={handleSaveGlobalTask}
       />
 
       {/* Global Add Subject Modal */}

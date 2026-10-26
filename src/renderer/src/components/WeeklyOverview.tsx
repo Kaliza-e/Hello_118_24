@@ -217,7 +217,7 @@ export function WeeklyOverview({
                     fontSize: 11.5
                   }}
                 >
-                  <span style={{ color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
+                  <span style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>
                     {t.title}
                   </span>
                   <span style={{ color: 'var(--priority-high-text)', fontSize: 10.5 }}>
@@ -235,7 +235,7 @@ export function WeeklyOverview({
             Incomplete Tasks
           </span>
 
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginTop: 2 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
             {totalIncompleteTasks} tasks
           </div>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -259,7 +259,7 @@ export function WeeklyOverview({
 
           <button
             className="btn-pill-action"
-            style={{ width: '100%', justifyContent: 'center', background: 'rgba(255,255,255,0.05)', color: '#fff' }}
+            style={{ width: '100%', justifyContent: 'center', background: 'var(--btn-hover-bg)', color: 'var(--text-primary)' }}
             onClick={onOpenTaskModal}
           >
             <Plus size={12} /> Add Task

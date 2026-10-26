@@ -8,7 +8,19 @@ export interface Task {
   completed: number
   category: string | null
   class_id: number | null
+  estimated_minutes?: number | null
   created_at: string
+}
+
+export interface FreeTimeSuggestion {
+  hasFreeTime: boolean
+  freeMinutes: number
+  freeUntil: string
+  nextEventTitle?: string
+  slotKey: string
+  suggestedTask?: Task | null
+  message: string
+  isSnoozed?: boolean
 }
 
 export interface SubjectItem {
@@ -33,6 +45,7 @@ export interface CandidateSubject {
   room: string
   notes: string
   confidence?: 'high' | 'medium' | 'low'
+  warning?: string
 }
 
 export type CandidateClass = CandidateSubject

@@ -116,7 +116,7 @@ export function TomorrowPlanner({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Subjects */}
           <div className="app-card">
-            <span className="section-sublabel" style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>
+            <span className="section-sublabel" style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
               Subjects
             </span>
 
@@ -141,7 +141,7 @@ export function TomorrowPlanner({
 
           {/* Tasks */}
           <div className="app-card">
-            <span className="section-sublabel" style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>
+            <span className="section-sublabel" style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
               Tasks
             </span>
 
@@ -194,7 +194,7 @@ export function TomorrowPlanner({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Top Priorities */}
           <div className="app-card">
-            <span className="section-sublabel" style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>
+            <span className="section-sublabel" style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
               Top Priorities
             </span>
 
@@ -228,7 +228,7 @@ export function TomorrowPlanner({
 
           {/* Notes */}
           <div className="app-card" style={{ flex: 1 }}>
-            <span className="section-sublabel" style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>
+            <span className="section-sublabel" style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
               Notes
             </span>
 

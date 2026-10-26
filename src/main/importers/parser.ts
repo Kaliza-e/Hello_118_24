@@ -6,6 +6,7 @@ export interface ParsedClassCandidate {
   room: string
   notes: string
   confidence?: 'high' | 'medium' | 'low'
+  warning?: string
 }
 
 export const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -85,12 +86,17 @@ function isTeacherNameLine(line: string): boolean {
 
 function isEmptySlot(line: string): boolean {
   const trimmed = line.trim()
-  return /^[—–\-]+$/.test(trimmed) || /^(free|nil|none|n\/a|self\s*study|study|empty)$/i.test(trimmed)
+  return (
+    /^[—–\-]+$/.test(trimmed) ||
+    /^(free|nil|none|n\/a|self\s*study|study|empty|break|lunch|recess)$/i.test(trimmed) ||
+    trimmed === ''
+  )
 }
 
 interface DayColumn {
   name: string
   weekday: number
+  columnIndex?: number
 }
 
 function extractDayColumnsFromHeader(line: string): DayColumn[] {
@@ -115,10 +121,145 @@ interface TimeBlock {
   tokens: string[]
 }
 
+function splitTableRow(line: string, delimiter: RegExp): string[] {
+  let clean = line.trim()
+  if (delimiter.source.includes('\\|')) {
+    clean = clean.replace(/^\|+/, '').replace(/\|+$/, '').trim()
+  }
+  return clean.split(delimiter).map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
+}
+
+// ----------------- Structure 1: Delimited Tabular Grid (CSV, TSV, Pipe Tables) -----------------
+export function parseDelimitedTable(text: string): ParsedClassCandidate[] {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return []
+
+  // Determine likely delimiter: tab, pipe, or multiple spaces/commas
+  let delimiter: RegExp | null = null
+  let headerLineIndex = -1
+  let dayColumnMap: Array<{ colIdx: number; weekday: number }> = []
+
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    const line = lines[i]
+
+    // Test delimiters
+    const candidateDelims: RegExp[] = [/\t+/, /\s*\|\s*/, /,\s*/, /\s{2,}/]
+    for (const d of candidateDelims) {
+      let parts = splitTableRow(line, d)
+      const daysFound: Array<{ colIdx: number; weekday: number }> = []
+      parts.forEach((p, cIdx) => {
+        const w = resolveWeekday(p)
+        if (w >= 0) {
+          daysFound.push({ colIdx: cIdx, weekday: w })
+        }
+      })
+
+      if (daysFound.length >= 3) {
+        delimiter = d
+        headerLineIndex = i
+        dayColumnMap = daysFound
+        break
+      }
+    }
+    if (delimiter) break
+  }
+
+  if (!delimiter || headerLineIndex < 0 || dayColumnMap.length < 3) {
+    return []
+  }
+
+  const candidates: ParsedClassCandidate[] = []
+
+  for (let i = headerLineIndex + 1; i < lines.length; i++) {
+    const line = lines[i]
+
+    // Skip separator lines like |---|---|
+    if (/^[|\s\-:+=]+$/.test(line)) continue
+
+    // Skip admin/break rows
+    if (/^(break|lunch|morning break|afternoon break|interval)\b/i.test(line)) continue
+
+    let parts = splitTableRow(line, delimiter)
+    if (parts.length < 2) continue
+
+    // Find the cell with the time range
+    let timeRange: { startTime: string; endTime: string } | null = null
+    let timeColIdx = -1
+
+    for (let cIdx = 0; cIdx < parts.length; cIdx++) {
+      const cell = parts[cIdx]
+      const rangeMatch = cell.match(TIME_RANGE_REGEX)
+      if (rangeMatch) {
+        timeRange = {
+          startTime: normalizeTime(rangeMatch[1], rangeMatch[2], rangeMatch[3]),
+          endTime: normalizeTime(rangeMatch[4], rangeMatch[5], rangeMatch[6] || rangeMatch[3])
+        }
+        timeColIdx = cIdx
+        break
+      }
+    }
+
+    if (!timeRange) continue
+
+    // For each day column, extract the corresponding subject
+    for (const { colIdx, weekday } of dayColumnMap) {
+      if (colIdx >= parts.length || colIdx === timeColIdx) continue
+      const cellText = parts[colIdx]
+      if (isEmptySlot(cellText)) continue
+
+      // Extract bracketed/labeled room
+      let room = ''
+      let cleaned = cellText
+      const brMatch = cellText.match(ROOM_BRACKET_REGEX)
+      if (brMatch) {
+        room = (brMatch[1] || brMatch[2]).trim()
+        cleaned = cleaned.replace(brMatch[0], ' ')
+      } else {
+        const rMatch = cellText.match(ROOM_REGEX)
+        if (rMatch) {
+          room = (rMatch[1] || rMatch[0]).trim()
+          cleaned = cleaned.replace(rMatch[0], ' ')
+        }
+      }
+
+      // Teacher / Instructor notes
+      let notes = 'Imported class'
+      const linesOrParts = cleaned.split(/[\r\n]+/)
+      let subjectTitle = cleaned
+      if (linesOrParts.length > 1) {
+        const teacherPart = linesOrParts.find(p => isTeacherNameLine(p))
+        if (teacherPart) {
+          notes = `Instructor: ${teacherPart.trim()}`
+          subjectTitle = linesOrParts.filter(p => p !== teacherPart).join(' ')
+        }
+      }
+
+      subjectTitle = subjectTitle
+        .replace(/[|\t–—\-:;,\/\\_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (!subjectTitle || subjectTitle.length < 2) continue
+
+      candidates.push({
+        title: subjectTitle.slice(0, 100),
+        weekday,
+        startTime: timeRange.startTime,
+        endTime: timeRange.endTime,
+        room,
+        notes,
+        confidence: 'high'
+      })
+    }
+  }
+
+  return candidates
+}
+
+// ----------------- Structure 2: Token Grid Timetable (e.g. Rwanda Coding Academy) -----------------
 export function parseGridTimetable(text: string): ParsedClassCandidate[] {
   const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
 
-  // 1. Detect header day columns
   let dayColumns: DayColumn[] = []
   for (const line of rawLines) {
     const cols = extractDayColumnsFromHeader(line)
@@ -134,10 +275,8 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
 
   const numCols = dayColumns.length
 
-  // 2. Preprocess lines: filter noise and separate inline dash indicators
   const lines: string[] = []
   for (const line of rawLines) {
-    // Skip break intervals
     if (
       /^(morning\s*break|afternoon\s*break|lunch|tea\s*break|break|recess|assembly|interval)\b/i.test(line) ||
       /\b(break|lunch)\s*\(\d{1,2}:\d{2}/i.test(line)
@@ -145,7 +284,6 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
       continue
     }
 
-    // Skip admin/metadata/footer lines
     if (
       /^(approved\s*by|principal\s*director|ag\.\s*principal\s*director|rwanda\s*coding\s*academy|academic\s*operations|class\s*timetable|scan\s*to\s*verify)/i.test(line) ||
       /\b(term\s*\d|generated:|rca-ctt-)/i.test(line)
@@ -153,12 +291,10 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
       continue
     }
 
-    // Skip repeated day header lines
     if (extractDayColumnsFromHeader(line).length >= 3) {
       continue
     }
 
-    // Check for leading or trailing dashes (e.g. "Stanley MWIZERWA —" or "to 16:10 —")
     let working = line
     let leadingDash = false
     let trailingDash = false
@@ -177,7 +313,6 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
     if (trailingDash) lines.push('—')
   }
 
-  // 3. Segment into time blocks
   const timeRangeRegex = /^(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?)\s*(?:to|-|–|—)\s*(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?)$/i
   const blocks: TimeBlock[] = []
   let currentBlock: TimeBlock | null = null
@@ -185,7 +320,6 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
 
-    // Case A: two lines: "08:30" followed by "to 09:20"
     const singleTimeMatch = line.match(/^(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?)$/i)
     const nextLine = lines[i + 1] || ''
     const toTimeMatch = nextLine.match(/^(?:to|-|–|—)\s*(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)?)$/i)
@@ -197,11 +331,10 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
         endTime: parseTimeString(toTimeMatch[1]),
         tokens: []
       }
-      i++ // Skip nextLine
+      i++
       continue
     }
 
-    // Case B: single line range: "08:30 to 09:20" or "08:30 - 09:20"
     const rangeMatch = line.match(timeRangeRegex)
     if (rangeMatch) {
       if (currentBlock) blocks.push(currentBlock)
@@ -221,7 +354,6 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
 
   if (blocks.length === 0) return []
 
-  // 4. Partition each time block's tokens into numCols slots
   const candidates: ParsedClassCandidate[] = []
 
   for (const b of blocks) {
@@ -244,7 +376,6 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
 
       currentSlotTokens.push(token)
 
-      // Check if this token completes the current non-empty slot
       if (currentSlotTokens.length >= 2 && isTeacherNameLine(token)) {
         slots.push(currentSlotTokens)
         currentSlotTokens = []
@@ -256,16 +387,14 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
       slots.push(currentSlotTokens)
     }
 
-    // Process each slot up to numCols
     for (let sIdx = 0; sIdx < Math.min(slots.length, numCols); sIdx++) {
       const sTokens = slots[sIdx]
       if (sTokens.length === 1 && isEmptySlot(sTokens[0])) {
-        continue // Free period
+        continue
       }
 
       const colDay = dayColumns[sIdx].weekday
 
-      // Extract room if bracketed or labeled
       let room = ''
       const filteredTokens: string[] = []
       for (const t of sTokens) {
@@ -279,7 +408,6 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
         filteredTokens.push(t)
       }
 
-      // Separate subject from teacher
       let teacherIndex = filteredTokens.findIndex((tok, idx) => idx > 0 && isTeacherNameLine(tok))
       let subjectParts: string[] = []
       let teacherParts: string[] = []
@@ -302,7 +430,7 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
       const teacher = teacherParts.join(' ').trim()
 
       if (!title || title.length < 2) {
-        title = 'Class / Lecture'
+        title = ''
       }
 
       candidates.push({
@@ -312,7 +440,8 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
         endTime: b.endTime,
         room,
         notes: teacher ? `Instructor: ${teacher}` : 'Imported class',
-        confidence: 'high'
+        confidence: title ? 'high' : 'low',
+        warning: title ? undefined : 'Subject title was not clearly identified'
       })
     }
   }
@@ -320,39 +449,31 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
   return candidates
 }
 
-export function parseTimetableText(text: string): ParsedClassCandidate[] {
-  if (!text || !text.trim()) return []
-
-  // Try Grid timetable parsing first (for schedules like RCA and columnar tables)
-  const gridCandidates = parseGridTimetable(text)
-  if (gridCandidates.length > 0) {
-    return deduplicate(gridCandidates)
-  }
-
-  // Fallback to line-by-line single row parsing
-  const candidates: ParsedClassCandidate[] = []
+// ----------------- Structure 3: Day Header Blocks (Columnar / Vertically Grouped Days) -----------------
+export function parseDayBlockTimetable(text: string): ParsedClassCandidate[] {
   const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-  let currentContextDay = -1
+  const candidates: ParsedClassCandidate[] = []
+  let currentDay = -1
 
   for (const line of rawLines) {
-    const standaloneDayMatch = line.match(/^[\s\W]*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)[\s\W]*$/i)
+    const standaloneDayMatch = line.match(/^[\s\W#*_-]*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)[\s\W*_-]*$/i)
     if (standaloneDayMatch) {
-      currentContextDay = resolveWeekday(standaloneDayMatch[1])
+      currentDay = resolveWeekday(standaloneDayMatch[1])
       continue
     }
 
-    const parsed = parseLineForLesson(line, currentContextDay)
+    if (currentDay < 0) continue
+
+    const parsed = parseLineForLesson(line, currentDay)
     if (parsed) {
       candidates.push(parsed)
-      if (parsed.weekday >= 0) {
-        currentContextDay = parsed.weekday
-      }
     }
   }
 
-  return deduplicate(candidates)
+  return candidates
 }
 
+// ----------------- Structure 4: Single Line Fallback -----------------
 function parseLineForLesson(line: string, defaultDay: number): ParsedClassCandidate | null {
   let weekday = defaultDay
   const dayMatch = line.match(DAY_REGEX)
@@ -423,34 +544,144 @@ function parseLineForLesson(line: string, defaultDay: number): ParsedClassCandid
     .replace(/\s+/g, ' ')
     .trim()
 
-  if (title.length < 2 || /^(am|pm|class|period|session|lecture|lesson)$/i.test(title)) {
-    title = 'Class / Lecture'
-  }
-
-  title = title.replace(/\b(room|rm|hall|lab)\b$/i, '').trim()
+  const isGeneric = /^(am|pm|class|period|session|lecture|lesson)$/i.test(title)
+  const isMissing = title.length < 2 || isGeneric
 
   return {
-    title: title.slice(0, 100),
+    title: isMissing ? '' : title.slice(0, 100),
     weekday,
     startTime,
     endTime,
     room,
     notes: 'Imported — verify day and time',
-    confidence: room && endTime ? 'high' : 'medium'
+    confidence: !isMissing && room && endTime ? 'high' : !isMissing ? 'medium' : 'low',
+    warning: isMissing ? 'Subject name is missing or unclear' : undefined
   }
 }
 
-function deduplicate(candidates: ParsedClassCandidate[]): ParsedClassCandidate[] {
+// ----------------- Validation, Overlap Detection, & Deduplication -----------------
+export function validateAndFinalizeCandidates(candidates: ParsedClassCandidate[]): ParsedClassCandidate[] {
+  // 1. Deduplicate identical entries
   const seen = new Set<string>()
   const unique: ParsedClassCandidate[] = []
 
   for (const c of candidates) {
-    const key = `${c.weekday}-${c.startTime}-${c.title.toLowerCase()}`
+    const titleKey = (c.title || '').toLowerCase().trim()
+    const key = `${c.weekday}-${c.startTime}-${c.endTime}-${titleKey}`
     if (!seen.has(key)) {
       seen.add(key)
-      unique.push(c)
+      unique.push({ ...c })
     }
   }
 
-  return unique.slice(0, 150)
+  // 2. Sort chronologically by weekday, then start time
+  unique.sort((a, b) => {
+    if (a.weekday !== b.weekday) return a.weekday - b.weekday
+    return a.startTime.localeCompare(b.startTime)
+  })
+
+  // 3. Time Validation & Overlap Detection
+  for (let i = 0; i < unique.length; i++) {
+    const current = unique[i]
+
+    // Time integrity
+    if (!current.startTime || !/^\d{2}:\d{2}$/.test(current.startTime)) {
+      current.confidence = 'low'
+      current.warning = 'Invalid or missing start time'
+      continue
+    }
+
+    const [sH, sM] = current.startTime.split(':').map(Number)
+    const startMins = sH * 60 + sM
+
+    if (current.endTime && /^\d{2}:\d{2}$/.test(current.endTime)) {
+      const [eH, eM] = current.endTime.split(':').map(Number)
+      const endMins = eH * 60 + eM
+      if (endMins <= startMins) {
+        current.confidence = 'low'
+        current.warning = 'End time must be after start time'
+      }
+    } else if (!current.endTime) {
+      // Default to 1 hr later if missing
+      const defEndH = Math.min(23, sH + 1)
+      current.endTime = `${String(defEndH).padStart(2, '0')}:${String(sM).padStart(2, '0')}`
+      if (current.confidence !== 'low') {
+        current.confidence = 'medium'
+      }
+    }
+
+    if (!current.title || current.title.trim().length === 0) {
+      current.confidence = 'low'
+      current.warning = current.warning || 'Subject name is missing'
+    }
+
+    // Check overlap with next entries on the same weekday
+    if (current.endTime && /^\d{2}:\d{2}$/.test(current.endTime)) {
+      const [eH, eM] = current.endTime.split(':').map(Number)
+      const endMins = eH * 60 + eM
+
+      for (let j = i + 1; j < unique.length; j++) {
+        const next = unique[j]
+        if (next.weekday !== current.weekday) break
+
+        const [nextSH, nextSM] = next.startTime.split(':').map(Number)
+        const nextStartMins = nextSH * 60 + nextSM
+
+        if (nextStartMins < endMins) {
+          current.warning = current.warning || `Overlaps with "${next.title || 'Subject'}" (${next.startTime})`
+          next.warning = next.warning || `Overlaps with "${current.title || 'Subject'}" (${current.startTime})`
+          if (current.confidence === 'high') current.confidence = 'medium'
+          if (next.confidence === 'high') next.confidence = 'medium'
+        }
+      }
+    }
+  }
+
+  return unique.slice(0, 200)
+}
+
+// ----------------- Main Parsing Entry Point -----------------
+export function parseTimetableText(text: string): ParsedClassCandidate[] {
+  if (!text || !text.trim()) return []
+
+  // Strategy 1: Delimited table (TSV, pipe-delimited, CSV with day columns)
+  const delimitedResults = parseDelimitedTable(text)
+  if (delimitedResults.length >= 3) {
+    return validateAndFinalizeCandidates(delimitedResults)
+  }
+
+  // Strategy 2: Multi-line Token Grid (like RCA timetable)
+  const gridCandidates = parseGridTimetable(text)
+  if (gridCandidates.length > 0) {
+    return validateAndFinalizeCandidates(gridCandidates)
+  }
+
+  // Strategy 3: Day Header Blocks (Columnar days or segmented sections)
+  const blockCandidates = parseDayBlockTimetable(text)
+  if (blockCandidates.length > 0) {
+    return validateAndFinalizeCandidates(blockCandidates)
+  }
+
+  // Strategy 4: Fallback line-by-line single row parsing
+  const fallbackCandidates: ParsedClassCandidate[] = []
+  const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  let currentContextDay = -1
+
+  for (const line of rawLines) {
+    const standaloneDayMatch = line.match(/^[\s\W]*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)[\s\W]*$/i)
+    if (standaloneDayMatch) {
+      currentContextDay = resolveWeekday(standaloneDayMatch[1])
+      continue
+    }
+
+    const parsed = parseLineForLesson(line, currentContextDay)
+    if (parsed) {
+      fallbackCandidates.push(parsed)
+      if (parsed.weekday >= 0) {
+        currentContextDay = parsed.weekday
+      }
+    }
+  }
+
+  return validateAndFinalizeCandidates(fallbackCandidates)
 }

@@ -1,0 +1,120 @@
+name: Cross-Platform Build & Verification
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      create_release_draft:
+        description: 'Prepare a draft GitHub release (default: false - artifacts only)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Build on ${{ matrix.os }} (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: Windows (x64 NSIS)
+            platform: win
+            artifact_name: hello-118-24-windows-x64
+            artifact_patterns: |
+              release/*.exe
+              release/*.blockmap
+
+          - os: macos-latest
+            target: macOS (x64 + arm64 DMG/ZIP)
+            platform: mac
+            artifact_name: hello-118-24-macos-universal
+            artifact_patterns: |
+              release/*.dmg
+              release/*.zip
+              release/*.blockmap
+
+          - os: ubuntu-latest
+            target: Linux (x64 AppImage + DEB)
+            platform: linux
+            artifact_name: hello-118-24-linux-x64
+            artifact_patterns: |
+              release/*.AppImage
+              release/*.deb
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libarchive-tools \
+            libnotify-bin \
+            libnss3 \
+            libasound2
+
+      - name: Install Node Dependencies (Reproducible)
+        run: npm ci
+
+      - name: Run Automated Tests
+        run: npm test
+
+      - name: Run TypeScript Type Check
+        run: npm run typecheck
+
+      - name: Build Electron & Vite Bundles
+        run: npm run build
+
+      - name: Package Windows (NSIS Installer)
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win --publish never
+
+      - name: Package macOS (DMG & ZIP)
+        if: matrix.platform == 'mac'
+        env:
+          # Optional codesigning credentials provided through repository secrets
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # If no certificate is supplied, disable auto-discovery to build unsigned DMG/ZIP for testing
+          if [ -z "${{ secrets.MAC_CSC_LINK }}" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npx electron-builder --mac --publish never
+
+      - name: Package Linux (AppImage & DEB)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload Packaged Installers as Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_patterns }}
+          if-no-files-found: error
+          retention-days: 14

@@ -10,7 +10,19 @@ export interface Task {
   completed: number
   category: string | null
   class_id: number | null
+  estimated_minutes?: number | null
   created_at: string
+}
+
+export interface FreeTimeSuggestion {
+  hasFreeTime: boolean
+  freeMinutes: number
+  freeUntil: string
+  nextEventTitle?: string
+  slotKey: string
+  suggestedTask?: Task | null
+  message: string
+  isSnoozed?: boolean
 }
 
 export interface SubjectItem {
@@ -35,6 +47,7 @@ export interface CandidateSubject {
   room: string
   notes: string
   confidence?: 'high' | 'medium' | 'low'
+  warning?: string
 }
 
 export type CandidateClass = CandidateSubject
@@ -58,14 +71,20 @@ export interface ImportResult {
 }
 
 export interface HelloAPI {
+  // Platform
+  platform?: 'win32' | 'darwin' | 'linux'
+
   // Window
   minimize(): Promise<void>
+  maximize(): Promise<boolean>
+  isMaximized(): Promise<boolean>
   hide(): Promise<void>
   togglePin(pinned: boolean): Promise<boolean>
   setMode(mode: 'compact' | 'standard'): Promise<string>
   openExternal(url: string): Promise<void>
-  onModeChanged(callback: () => void): () => void
+  onModeChanged(callback: (mode?: 'compact' | 'standard') => void): () => void
   onPinnedChanged(callback: (pinned: boolean) => void): () => void
+  onMaximizeChanged(callback: (isMax: boolean) => void): () => void
 
   // Settings
   getSetting(key: string): Promise<string | null>
@@ -84,6 +103,7 @@ export interface HelloAPI {
     priority?: 'low' | 'normal' | 'high'
     category?: string
     classId?: number
+    estimatedMinutes?: number | null
   }): Promise<Task>
   updateTask(id: number, payload: {
     title?: string
@@ -94,10 +114,17 @@ export interface HelloAPI {
     completed?: boolean
     category?: string | null
     classId?: number | null
+    estimatedMinutes?: number | null
   }): Promise<Task>
   toggleTask(id: number, completed: boolean): Promise<boolean>
   deleteTask(id: number): Promise<boolean>
   rolloverTasks(fromDate: string, toDate: string): Promise<number>
+
+  // Smart Free Time Task Suggestions
+  getFreeTimeSuggestion(): Promise<FreeTimeSuggestion>
+  snoozeFreeTimeReminder(minutes?: number): Promise<boolean>
+  dismissFreeTimeReminder(slotKey: string): Promise<boolean>
+  completeSuggestedTask(taskId: number): Promise<boolean>
 
   // Subjects / Classes
   listSubjects(): Promise<SubjectItem[]>

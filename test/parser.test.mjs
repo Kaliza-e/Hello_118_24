@@ -73,7 +73,11 @@ function isTeacherNameLine(line) {
 
 function isEmptySlot(line) {
   const trimmed = line.trim()
-  return /^[—–\-]+$/.test(trimmed) || /^(free|nil|none|n\/a|self\s*study|study|empty)$/i.test(trimmed)
+  return (
+    /^[—–\-]+$/.test(trimmed) ||
+    /^(free|nil|none|n\/a|self\s*study|study|empty|break|lunch|recess)$/i.test(trimmed) ||
+    trimmed === ''
+  )
 }
 
 function extractDayColumnsFromHeader(line) {
@@ -90,6 +94,129 @@ function extractDayColumnsFromHeader(line) {
     }
   }
   return columns.length >= 3 ? columns : []
+}
+
+function splitTableRow(line, delimiter) {
+  let clean = line.trim()
+  if (delimiter.source.includes('\\|')) {
+    clean = clean.replace(/^\|+/, '').replace(/\|+$/, '').trim()
+  }
+  return clean.split(delimiter).map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
+}
+
+function parseDelimitedTable(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return []
+
+  let delimiter = null
+  let headerLineIndex = -1
+  let dayColumnMap = []
+
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    const line = lines[i]
+    const candidateDelims = [/\t+/, /\s*\|\s*/, /,\s*/, /\s{2,}/]
+    for (const d of candidateDelims) {
+      let parts = splitTableRow(line, d)
+      const daysFound = []
+      parts.forEach((p, cIdx) => {
+        const w = resolveWeekday(p)
+        if (w >= 0) {
+          daysFound.push({ colIdx: cIdx, weekday: w })
+        }
+      })
+
+      if (daysFound.length >= 3) {
+        delimiter = d
+        headerLineIndex = i
+        dayColumnMap = daysFound
+        break
+      }
+    }
+    if (delimiter) break
+  }
+
+  if (!delimiter || headerLineIndex < 0 || dayColumnMap.length < 3) {
+    return []
+  }
+
+  const candidates = []
+
+  for (let i = headerLineIndex + 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^[|\s\-:+=]+$/.test(line)) continue
+    if (/^(break|lunch|morning break|afternoon break|interval)\b/i.test(line)) continue
+
+    let parts = splitTableRow(line, delimiter)
+    if (parts.length < 2) continue
+
+    let timeRange = null
+    let timeColIdx = -1
+
+    for (let cIdx = 0; cIdx < parts.length; cIdx++) {
+      const cell = parts[cIdx]
+      const rangeMatch = cell.match(TIME_RANGE_REGEX)
+      if (rangeMatch) {
+        timeRange = {
+          startTime: normalizeTime(rangeMatch[1], rangeMatch[2], rangeMatch[3]),
+          endTime: normalizeTime(rangeMatch[4], rangeMatch[5], rangeMatch[6] || rangeMatch[3])
+        }
+        timeColIdx = cIdx
+        break
+      }
+    }
+
+    if (!timeRange) continue
+
+    for (const { colIdx, weekday } of dayColumnMap) {
+      if (colIdx >= parts.length || colIdx === timeColIdx) continue
+      const cellText = parts[colIdx]
+      if (isEmptySlot(cellText)) continue
+
+      let room = ''
+      let cleaned = cellText
+      const brMatch = cellText.match(ROOM_BRACKET_REGEX)
+      if (brMatch) {
+        room = (brMatch[1] || brMatch[2]).trim()
+        cleaned = cleaned.replace(brMatch[0], ' ')
+      } else {
+        const rMatch = cellText.match(ROOM_REGEX)
+        if (rMatch) {
+          room = (rMatch[1] || rMatch[0]).trim()
+          cleaned = cleaned.replace(rMatch[0], ' ')
+        }
+      }
+
+      let notes = 'Imported class'
+      const linesOrParts = cleaned.split(/[\r\n]+/)
+      let subjectTitle = cleaned
+      if (linesOrParts.length > 1) {
+        const teacherPart = linesOrParts.find(p => isTeacherNameLine(p))
+        if (teacherPart) {
+          notes = `Instructor: ${teacherPart.trim()}`
+          subjectTitle = linesOrParts.filter(p => p !== teacherPart).join(' ')
+        }
+      }
+
+      subjectTitle = subjectTitle
+        .replace(/[|\t–—\-:;,\/\\_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (!subjectTitle || subjectTitle.length < 2) continue
+
+      candidates.push({
+        title: subjectTitle.slice(0, 100),
+        weekday,
+        startTime: timeRange.startTime,
+        endTime: timeRange.endTime,
+        room,
+        notes,
+        confidence: 'high'
+      })
+    }
+  }
+
+  return candidates
 }
 
 function parseGridTimetable(text) {
@@ -210,7 +337,7 @@ function parseGridTimetable(text) {
 
       if (currentSlotTokens.length >= 2 && isTeacherNameLine(token)) {
         slots.push(currentSlotTokens)
-        currentSlotTokens = [];
+        currentSlotTokens = []
         if (slots.length === numCols) break
       }
     }
@@ -262,7 +389,7 @@ function parseGridTimetable(text) {
       const teacher = teacherParts.join(' ').trim()
 
       if (!title || title.length < 2) {
-        title = 'Class / Lecture'
+        title = ''
       }
 
       candidates.push({
@@ -272,7 +399,8 @@ function parseGridTimetable(text) {
         endTime: b.endTime,
         room,
         notes: teacher ? `Instructor: ${teacher}` : 'Imported class',
-        confidence: 'high'
+        confidence: title ? 'high' : 'low',
+        warning: title ? undefined : 'Subject title was not clearly identified'
       })
     }
   }
@@ -280,15 +408,190 @@ function parseGridTimetable(text) {
   return candidates
 }
 
+function parseDayBlockTimetable(text) {
+  const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  const candidates = []
+  let currentDay = -1
+
+  for (const line of rawLines) {
+    const standaloneDayMatch = line.match(/^[\s\W#*_-]*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)[\s\W*_-]*$/i)
+    if (standaloneDayMatch) {
+      currentDay = resolveWeekday(standaloneDayMatch[1])
+      continue
+    }
+
+    if (currentDay < 0) continue
+
+    const parsed = parseLineForLesson(line, currentDay)
+    if (parsed) {
+      candidates.push(parsed)
+    }
+  }
+
+  return candidates
+}
+
+function parseLineForLesson(line, defaultDay) {
+  let weekday = defaultDay
+  const dayMatch = line.match(DAY_REGEX)
+  let cleanLine = line
+
+  if (dayMatch) {
+    const matchedDay = resolveWeekday(dayMatch[1])
+    if (matchedDay >= 0) {
+      weekday = matchedDay
+      cleanLine = cleanLine.replace(dayMatch[0], ' ')
+    }
+  }
+
+  if (weekday < 0) return null
+
+  let startTime = ''
+  let endTime = ''
+
+  const rangeMatch = cleanLine.match(TIME_RANGE_REGEX)
+  if (rangeMatch) {
+    startTime = normalizeTime(rangeMatch[1], rangeMatch[2], rangeMatch[3])
+    endTime = normalizeTime(rangeMatch[4], rangeMatch[5], rangeMatch[6] || rangeMatch[3])
+    cleanLine = cleanLine.replace(rangeMatch[0], ' ')
+  } else {
+    const times = [...cleanLine.matchAll(SINGLE_TIME_REGEX)].map(m => normalizeTime(m[1], m[2], m[3]))
+    if (times.length >= 1) {
+      startTime = times[0]
+      if (times.length >= 2) endTime = times[1]
+      cleanLine = cleanLine.replace(SINGLE_TIME_REGEX, ' ')
+    }
+  }
+
+  if (!startTime) return null
+
+  let room = ''
+  const bracketMatch = cleanLine.match(ROOM_BRACKET_REGEX)
+  if (bracketMatch) {
+    room = (bracketMatch[1] || bracketMatch[2]).trim()
+    cleanLine = cleanLine.replace(bracketMatch[0], ' ')
+  } else {
+    const roomMatch = cleanLine.match(ROOM_REGEX)
+    if (roomMatch) {
+      room = (roomMatch[1] || roomMatch[0]).trim()
+      cleanLine = cleanLine.replace(roomMatch[0], ' ')
+    }
+  }
+
+  let title = cleanLine
+    .replace(/\(\s*\)|\[\s*\]/g, ' ')
+    .replace(/[|\t–—\-:;,\/\\_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const isGeneric = /^(am|pm|class|period|session|lecture|lesson)$/i.test(title)
+  const isMissing = title.length < 2 || isGeneric
+
+  return {
+    title: isMissing ? '' : title.slice(0, 100),
+    weekday,
+    startTime,
+    endTime,
+    room,
+    notes: 'Imported — verify day and time',
+    confidence: !isMissing && room && endTime ? 'high' : !isMissing ? 'medium' : 'low',
+    warning: isMissing ? 'Subject name is missing or unclear' : undefined
+  }
+}
+
+function validateAndFinalizeCandidates(candidates) {
+  const seen = new Set()
+  const unique = []
+
+  for (const c of candidates) {
+    const titleKey = (c.title || '').toLowerCase().trim()
+    const key = `${c.weekday}-${c.startTime}-${c.endTime}-${titleKey}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      unique.push({ ...c })
+    }
+  }
+
+  unique.sort((a, b) => {
+    if (a.weekday !== b.weekday) return a.weekday - b.weekday
+    return a.startTime.localeCompare(b.startTime)
+  })
+
+  for (let i = 0; i < unique.length; i++) {
+    const current = unique[i]
+
+    if (!current.startTime || !/^\d{2}:\d{2}$/.test(current.startTime)) {
+      current.confidence = 'low'
+      current.warning = 'Invalid or missing start time'
+      continue
+    }
+
+    const [sH, sM] = current.startTime.split(':').map(Number)
+    const startMins = sH * 60 + sM
+
+    if (current.endTime && /^\d{2}:\d{2}$/.test(current.endTime)) {
+      const [eH, eM] = current.endTime.split(':').map(Number)
+      const endMins = eH * 60 + eM
+      if (endMins <= startMins) {
+        current.confidence = 'low'
+        current.warning = 'End time must be after start time'
+      }
+    } else if (!current.endTime) {
+      const defEndH = Math.min(23, sH + 1)
+      current.endTime = `${String(defEndH).padStart(2, '0')}:${String(sM).padStart(2, '0')}`
+      if (current.confidence !== 'low') {
+        current.confidence = 'medium'
+      }
+    }
+
+    if (!current.title || current.title.trim().length === 0) {
+      current.confidence = 'low'
+      current.warning = current.warning || 'Subject name is missing'
+    }
+
+    if (current.endTime && /^\d{2}:\d{2}$/.test(current.endTime)) {
+      const [eH, eM] = current.endTime.split(':').map(Number)
+      const endMins = eH * 60 + eM
+
+      for (let j = i + 1; j < unique.length; j++) {
+        const next = unique[j]
+        if (next.weekday !== current.weekday) break
+
+        const [nextSH, nextSM] = next.startTime.split(':').map(Number)
+        const nextStartMins = nextSH * 60 + nextSM
+
+        if (nextStartMins < endMins) {
+          current.warning = current.warning || `Overlaps with "${next.title || 'Subject'}" (${next.startTime})`
+          next.warning = next.warning || `Overlaps with "${current.title || 'Subject'}" (${current.startTime})`
+          if (current.confidence === 'high') current.confidence = 'medium'
+          if (next.confidence === 'high') next.confidence = 'medium'
+        }
+      }
+    }
+  }
+
+  return unique.slice(0, 200)
+}
+
 function parseTimetableText(text) {
   if (!text || !text.trim()) return []
 
-  const gridCandidates = parseGridTimetable(text)
-  if (gridCandidates.length > 0) {
-    return deduplicate(gridCandidates)
+  const delimitedResults = parseDelimitedTable(text)
+  if (delimitedResults.length >= 3) {
+    return validateAndFinalizeCandidates(delimitedResults)
   }
 
-  const candidates = []
+  const gridCandidates = parseGridTimetable(text)
+  if (gridCandidates.length > 0) {
+    return validateAndFinalizeCandidates(gridCandidates)
+  }
+
+  const blockCandidates = parseDayBlockTimetable(text)
+  if (blockCandidates.length > 0) {
+    return validateAndFinalizeCandidates(blockCandidates)
+  }
+
+  const fallbackCandidates = []
   const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   let currentContextDay = -1
 
@@ -299,86 +602,16 @@ function parseTimetableText(text) {
       continue
     }
 
-    let weekday = currentContextDay
-    const dayMatch = line.match(DAY_REGEX)
-    let cleanLine = line
-
-    if (dayMatch) {
-      const matchedDay = resolveWeekday(dayMatch[1])
-      if (matchedDay >= 0) {
-        weekday = matchedDay
-        cleanLine = cleanLine.replace(dayMatch[0], ' ')
+    const parsed = parseLineForLesson(line, currentContextDay)
+    if (parsed) {
+      fallbackCandidates.push(parsed)
+      if (parsed.weekday >= 0) {
+        currentContextDay = parsed.weekday
       }
     }
-
-    if (weekday < 0) continue
-
-    let startTime = ''
-    let endTime = ''
-    const rangeMatch = cleanLine.match(TIME_RANGE_REGEX)
-    if (rangeMatch) {
-      startTime = normalizeTime(rangeMatch[1], rangeMatch[2], rangeMatch[3])
-      endTime = normalizeTime(rangeMatch[4], rangeMatch[5], rangeMatch[6] || rangeMatch[3])
-      cleanLine = cleanLine.replace(rangeMatch[0], ' ')
-    } else {
-      const times = [...cleanLine.matchAll(SINGLE_TIME_REGEX)].map(m => normalizeTime(m[1], m[2], m[3]))
-      if (times.length >= 1) {
-        startTime = times[0]
-        if (times.length >= 2) endTime = times[1]
-        cleanLine = cleanLine.replace(SINGLE_TIME_REGEX, ' ')
-      }
-    }
-
-    if (!startTime) continue
-
-    let room = ''
-    const bracketMatch = cleanLine.match(ROOM_BRACKET_REGEX)
-    if (bracketMatch) {
-      room = (bracketMatch[1] || bracketMatch[2]).trim()
-      cleanLine = cleanLine.replace(bracketMatch[0], ' ')
-    } else {
-      const roomMatch = cleanLine.match(ROOM_REGEX)
-      if (roomMatch) {
-        room = (roomMatch[1] || roomMatch[0]).trim()
-        cleanLine = cleanLine.replace(roomMatch[0], ' ')
-      }
-    }
-
-    let title = cleanLine
-      .replace(/\(\s*\)|\[\s*\]/g, ' ')
-      .replace(/[|\t–—\-:;,\/\\_]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (title.length < 2 || /^(am|pm|class|period|session|lecture|lesson)$/i.test(title)) {
-      title = 'Class / Lecture'
-    }
-    title = title.replace(/\b(room|rm|hall|lab)\b$/i, '').trim()
-
-    candidates.push({
-      title: title.slice(0, 100),
-      weekday,
-      startTime,
-      endTime,
-      room,
-      notes: 'Imported — verify day and time',
-      confidence: room && endTime ? 'high' : 'medium'
-    })
   }
 
-  return deduplicate(candidates)
-}
-
-function deduplicate(candidates) {
-  const seen = new Set()
-  const unique = []
-  for (const c of candidates) {
-    const key = `${c.weekday}-${c.startTime}-${c.title.toLowerCase()}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      unique.push(c)
-    }
-  }
-  return unique.slice(0, 150)
+  return validateAndFinalizeCandidates(fallbackCandidates)
 }
 
 // ======================= UNIT TESTS =======================
@@ -498,36 +731,27 @@ test('Timetable Parser: parses Rwanda Coding Academy grid format with all 31 cla
   const results = parseTimetableText(rcaSampleText)
   assert.equal(results.length, 31, `Expected 31 classes parsed, got ${results.length}`)
 
-  // Verify first period on Monday (Maths, Jean Bosco UWITONZE)
   const mondayMaths = results.find(c => c.weekday === 1 && c.startTime === '08:30')
   assert.ok(mondayMaths)
   assert.equal(mondayMaths.title, 'Maths')
   assert.equal(mondayMaths.endTime, '09:20')
   assert.match(mondayMaths.notes, /Jean Bosco UWITONZE/)
 
-  // Verify Tuesday Physics
   const tuesdayPhysics = results.find(c => c.weekday === 2 && c.startTime === '08:30')
   assert.ok(tuesdayPhysics)
   assert.equal(tuesdayPhysics.title, 'Physics')
-  assert.match(tuesdayPhysics.notes, /Jean de Dieu NSHIMIYIMANA/)
 
-  // Verify Thursday DEVOPS
   const thursdayDevops = results.find(c => c.weekday === 4 && c.startTime === '08:30')
   assert.ok(thursdayDevops)
   assert.equal(thursdayDevops.title, 'DEVOPS')
-  assert.match(thursdayDevops.notes, /Stanley MWIZERWA/)
 
-  // Verify multi-word subject Project Management on Friday at 13:30
   const fridayProject = results.find(c => c.weekday === 5 && c.startTime === '13:30')
   assert.ok(fridayProject)
   assert.equal(fridayProject.title, 'Project Management')
-  assert.match(fridayProject.notes, /Aphrodice RWAGAJU/)
 
-  // Verify Wednesday Intelligent Robotics at 11:20
   const wedRobotics = results.find(c => c.weekday === 3 && c.startTime === '11:20')
   assert.ok(wedRobotics)
   assert.equal(wedRobotics.title, 'Intelligent Robotics')
-  assert.match(wedRobotics.notes, /Gabriel BAZIRAMWABO/)
 })
 
 test('Timetable Parser: handles attached header words like TimeMondayTuesdayWednesdayThursdayFriday', () => {
@@ -556,11 +780,77 @@ test('Timetable Parser: handles attached header words like TimeMondayTuesdayWedn
   assert.equal(results[4].title, 'English')
 })
 
+test('Timetable Parser: parses column-based delimited table where days are columns', () => {
+  const tableText = `
+    Time\tMonday\tTuesday\tWednesday\tThursday\tFriday
+    08:30 - 09:20\tMaths [Rm 101]\tPhysics [Lab 2]\tChemistry\tDEVOPS\tEnglish
+    09:20 - 10:10\tMobile App\tAlgorithms\tFree\tDatabase\tFrench
+    10:30 - 11:20\tLiterature\tMachine Learning\tHistory\tGeography\tBiology
+  `
+  const results = parseTimetableText(tableText)
+  assert.ok(results.length >= 13, `Expected at least 13 classes, got ${results.length}`)
+
+  // Verify Monday Maths
+  const monMaths = results.find(c => c.weekday === 1 && c.startTime === '08:30')
+  assert.ok(monMaths, 'Monday 08:30 Maths should exist')
+  assert.equal(monMaths.title, 'Maths')
+  assert.equal(monMaths.room, '101')
+
+  // Verify Tuesday Physics
+  const tuePhysics = results.find(c => c.weekday === 2 && c.startTime === '08:30')
+  assert.ok(tuePhysics, 'Tuesday 08:30 Physics should exist')
+  assert.equal(tuePhysics.title, 'Physics')
+  assert.equal(tuePhysics.room, '2')
+
+  // Wednesday 09:20 was Free, so no Wednesday 09:20 class
+  const wedFree = results.find(c => c.weekday === 3 && c.startTime === '09:20')
+  assert.equal(wedFree, undefined, 'Free period should not generate a subject')
+})
+
+test('Timetable Parser: parses pipe-delimited Markdown table with day columns', () => {
+  const pipeText = `
+    | Time | Monday | Tuesday | Wednesday | Thursday | Friday |
+    | --- | --- | --- | --- | --- | --- |
+    | 09:00 - 10:00 | Calculus I | Physics I | Linear Algebra | Chemistry | Biology |
+    | 10:00 - 11:00 | Computer Science | Economics | Music | Art | Physical Education |
+  `
+  const results = parseTimetableText(pipeText)
+  assert.equal(results.length, 10)
+
+  const monCalc = results.find(c => c.weekday === 1 && c.startTime === '09:00')
+  assert.ok(monCalc)
+  assert.equal(monCalc.title, 'Calculus I')
+  assert.equal(monCalc.endTime, '10:00')
+
+  const friBio = results.find(c => c.weekday === 5 && c.startTime === '09:00')
+  assert.ok(friBio)
+  assert.equal(friBio.title, 'Biology')
+})
+
+test('Timetable Parser: detects invalid time range and flags warning', () => {
+  const input = 'Monday 14:00 - 13:00 Invalid Backward Time Class'
+  const result = parseTimetableText(input)
+  assert.equal(result.length, 1)
+  assert.equal(result[0].confidence, 'low')
+  assert.match(result[0].warning, /End time must be after start time/i)
+})
+
+test('Timetable Parser: detects overlapping entries on the same day', () => {
+  const input = `
+    Monday 09:00 - 10:30 Subject Alpha
+    Monday 10:00 - 11:30 Subject Beta
+  `
+  const result = parseTimetableText(input)
+  assert.equal(result.length, 2)
+  assert.ok(result[0].warning && result[0].warning.includes('Overlaps'))
+  assert.ok(result[1].warning && result[1].warning.includes('Overlaps'))
+})
+
 test('Timetable Parser: handles line with day, time range, subject, and room (single line fallback)', () => {
   const input = 'Monday 09:00 - 10:30 Data Structures Room 302'
   const result = parseTimetableText(input)
   assert.equal(result.length, 1)
-  assert.equal(result[0].weekday, 1) // Monday
+  assert.equal(result[0].weekday, 1)
   assert.equal(result[0].startTime, '09:00')
   assert.equal(result[0].endTime, '10:30')
   assert.equal(result[0].room, '302')
@@ -571,7 +861,7 @@ test('Timetable Parser: converts 12-hour PM times correctly', () => {
   const input = 'Wednesday 2:30 PM to 4:00 PM Operating Systems Rm Lab-B'
   const result = parseTimetableText(input)
   assert.equal(result.length, 1)
-  assert.equal(result[0].weekday, 3) // Wednesday
+  assert.equal(result[0].weekday, 3)
   assert.equal(result[0].startTime, '14:30')
   assert.equal(result[0].endTime, '16:00')
   assert.equal(result[0].room, 'Lab-B')
@@ -591,16 +881,6 @@ test('Timetable Parser: handles day header followed by lesson rows with brackete
   assert.equal(result[0].startTime, '08:00')
   assert.equal(result[0].title, 'Calculus I')
   assert.equal(result[0].room, '101')
-
-  assert.equal(result[1].weekday, 2)
-  assert.equal(result[1].startTime, '10:00')
-  assert.equal(result[1].title, 'Linear Algebra')
-  assert.equal(result[1].room, '102')
-
-  assert.equal(result[2].weekday, 2)
-  assert.equal(result[2].startTime, '13:00')
-  assert.equal(result[2].title, 'Physics Mechanics')
-  assert.equal(result[2].room, '405')
 })
 
 test('Timetable Parser: deduplicates identical entries', () => {

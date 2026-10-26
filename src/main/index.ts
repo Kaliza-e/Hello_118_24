@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, screen, session } from 'electron'
 import { join } from 'node:path'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSync } from 'node:fs'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import {
@@ -29,6 +29,18 @@ import {
 import { parseTimetableText } from './importers/parser'
 import { initNotifications } from './notifications'
 import { initUpdater, cleanupUpdater } from './updater'
+import {
+  getFreeTimeSuggestion,
+  snoozeFreeTimeReminder,
+  dismissFreeTimeReminder,
+  completeSuggestedTask
+} from './freeTimeEngine'
+
+// Set application name and Windows AppUserModelID early for native toast attribution
+app.name = 'Hello 118:24'
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.hello11824.desktop')
+}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -47,15 +59,188 @@ if (!gotSingleInstanceLock) {
   app.quit()
 }
 
-// Creates an SVG-based tray icon with dark purple & blue gradient
+export function getWindowIcon(): string {
+  if (process.platform === 'linux') {
+    const pngPath = join(__dirname, '../../build/icon.png')
+    if (existsSync(pngPath)) return pngPath
+  }
+  const icoPath = join(__dirname, '../../build/icon.ico')
+  if (existsSync(icoPath) && process.platform === 'win32') return icoPath
+  const pngPath = join(__dirname, '../../build/icon.png')
+  if (existsSync(pngPath)) return pngPath
+  return join(app.getAppPath(), 'build/icon.png')
+}
+
+// Ensures a Start Menu shortcut exists with the app's AppUserModelId on Windows
+// so notifications display the real app name and branding instead of electron.app.Electron.
+export function ensureWindowsShortcut(): void {
+  if (process.platform !== 'win32') return
+  try {
+    const programsPath = join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+    if (!existsSync(programsPath)) return
+    const shortcutPath = join(programsPath, 'Hello 11824.lnk')
+    const icoPath = getWindowIcon()
+    shell.writeShortcutLink(shortcutPath, existsSync(shortcutPath) ? 'update' : 'create', {
+      target: process.execPath,
+      args: isDev ? `"${app.getAppPath()}"` : '',
+      cwd: app.getAppPath(),
+      description: 'Hello 118:24 — Daily Planner & Timetable',
+      appUserModelId: 'com.hello11824.desktop',
+      icon: icoPath,
+      iconIndex: 0
+    })
+  } catch (err) {
+    console.error('Failed to create/update Windows shortcut:', err)
+  }
+}
+
+// Creates an SVG or native icon for the system tray
 function createTrayIcon(): Electron.NativeImage {
+  const pngPath = join(__dirname, '../../build/icon.png')
+  if (existsSync(pngPath)) {
+    const img = nativeImage.createFromPath(pngPath).resize({ width: 16, height: 16 })
+    if (process.platform === 'darwin') {
+      img.setTemplateImage(true)
+    }
+    return img
+  }
+  const icoPath = join(__dirname, '../../build/icon.ico')
+  if (existsSync(icoPath) && process.platform === 'win32') {
+    return nativeImage.createFromPath(icoPath).resize({ width: 16, height: 16 })
+  }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <rect width="32" height="32" rx="8" fill="#141a2e"/>
     <circle cx="16" cy="16" r="10" stroke="#818cf8" stroke-width="2.5" fill="none"/>
     <path d="M16 10v6l4 2.5" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round"/>
     <circle cx="16" cy="16" r="2.5" fill="#a855f7"/>
   </svg>`
-  return nativeImage.createFromBuffer(Buffer.from(svg), { width: 16, height: 16 })
+  const img = nativeImage.createFromBuffer(Buffer.from(svg), { width: 16, height: 16 })
+  if (process.platform === 'darwin') {
+    img.setTemplateImage(true)
+  }
+  return img
+}
+
+// Cross-platform autostart management (Windows registry, macOS login items, Linux XDG autostart)
+export function updateAutoStart(openAtLogin: boolean, openAsHidden: boolean): void {
+  try {
+    app.setLoginItemSettings({ openAtLogin, openAsHidden })
+  } catch (err) {
+    console.error('Failed to set login item settings:', err)
+  }
+
+  // Linux XDG Autostart support
+  if (process.platform === 'linux') {
+    try {
+      const autostartDir = join(app.getPath('home'), '.config', 'autostart')
+      const desktopFilePath = join(autostartDir, 'hello-118-24.desktop')
+      if (openAtLogin) {
+        if (!existsSync(autostartDir)) {
+          mkdirSync(autostartDir, { recursive: true })
+        }
+        const execPath = app.getPath('exe')
+        const content = `[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Hello 118:24
+Comment=Personal desktop companion for school, productivity, timetable management, and daily planning
+Exec="${execPath}"${openAsHidden ? ' --hidden' : ''}
+Icon=hello-118-24
+Terminal=false
+Categories=Education;Utility;
+X-GNOME-Autostart-enabled=true
+`
+        writeFileSync(desktopFilePath, content, 'utf8')
+      } else {
+        if (existsSync(desktopFilePath)) {
+          unlinkSync(desktopFilePath)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update Linux autostart:', err)
+    }
+  }
+}
+
+// Configures standard native application menus on macOS (ensuring Cmd+C, Cmd+V, Cmd+Q work)
+function setupApplicationMenu(): void {
+  if (process.platform === 'darwin') {
+    const template: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: 'Hello 118:24',
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          {
+            label: 'Quit Hello 118:24',
+            accelerator: 'Command+Q',
+            click: () => {
+              isAppQuitting = true
+              app.quit()
+            }
+          }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'View',
+        submenu: [
+          {
+            label: 'Toggle View Mode',
+            accelerator: 'Command+Shift+M',
+            click: () => {
+              if (mainWindow) {
+                const bounds = mainWindow.getBounds()
+                if (bounds.width < 800) {
+                  mainWindow.setBounds({ width: 940, height: 600, x: Math.max(40, bounds.x - 110), y: bounds.y })
+                  setSetting('widget_mode', 'standard')
+                } else {
+                  mainWindow.setBounds({ width: 720, height: 470, x: bounds.x, y: bounds.y })
+                  setSetting('widget_mode', 'compact')
+                }
+                mainWindow.webContents.send('widget:mode-changed')
+              }
+            }
+          },
+          { type: 'separator' },
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' }
+        ]
+      },
+      {
+        label: 'Window',
+        submenu: [
+          { role: 'minimize' },
+          { role: 'zoom' },
+          { type: 'separator' },
+          { role: 'front' }
+        ]
+      }
+    ]
+    const menu = Menu.buildFromTemplate(template)
+    Menu.setApplicationMenu(menu)
+  } else {
+    // Keep window menu hidden on Windows and Linux so the custom frameless titlebar stays clean
+    Menu.setApplicationMenu(null)
+  }
 }
 
 function ensureWindowWithinDisplayBounds(x: number, y: number, width: number, height: number): { x: number; y: number; width: number; height: number } {
@@ -91,6 +276,67 @@ function applyPinnedState(pinned: boolean) {
   mainWindow.setAlwaysOnTop(pinned, pinned ? 'screen-saver' : 'normal')
   if (pinned) {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
+}
+
+const SAFE_EXTERNAL_HOSTS = new Set([
+  'github.com',
+  'raw.githubusercontent.com',
+  'api.github.com',
+  'fonts.googleapis.com',
+  'fonts.gstatic.com'
+])
+
+export function isSafeExternalUrl(targetUrl: string): boolean {
+  try {
+    const parsed = new URL(targetUrl)
+    if (parsed.protocol !== 'https:') return false
+    const hostname = parsed.hostname.toLowerCase()
+    if (SAFE_EXTERNAL_HOSTS.has(hostname)) return true
+    for (const allowed of SAFE_EXTERNAL_HOSTS) {
+      if (hostname.endsWith(`.${allowed}`)) return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+export function setupSecurityHeaders(): void {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-eval' blob:",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' data: blob:",
+      "worker-src 'self' blob:",
+      "connect-src 'self' blob: data: https://api.github.com https://github.com https://fonts.googleapis.com https://fonts.gstatic.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'none'"
+    ].join('; ')
+
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+        'X-Content-Type-Options': ['nosniff'],
+        'X-Frame-Options': ['DENY']
+      }
+    })
+  })
+}
+
+export function isAuthorizedSender(event: Electron.IpcMainInvokeEvent): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  return event.senderFrame === mainWindow.webContents.mainFrame
+}
+
+export function assertAuthorizedSender(event: Electron.IpcMainInvokeEvent): void {
+  if (!isAuthorizedSender(event)) {
+    throw new Error('Unauthorized IPC sender: frame origin does not match application window.')
   }
 }
 
@@ -130,11 +376,34 @@ function createWindow() {
     resizable: true,
     show: false,
     title: 'Hello 118:24',
+    icon: getWindowIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false
+    }
+  })
+
+  // Prevent creation of untrusted popup windows; open safe external links in browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url).catch(console.error)
+    }
+    return { action: 'deny' }
+  })
+
+  // Restrict navigation away from the packaged renderer app
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (isDev && process.env.ELECTRON_RENDERER_URL) {
+      if (navigationUrl.startsWith(process.env.ELECTRON_RENDERER_URL)) return
+    }
+    if (navigationUrl.startsWith('file://')) return
+    event.preventDefault()
+    if (isSafeExternalUrl(navigationUrl)) {
+      shell.openExternal(navigationUrl).catch(console.error)
     }
   })
 
@@ -181,6 +450,14 @@ function createWindow() {
 
   mainWindow.on('moved', saveBounds)
   mainWindow.on('resized', saveBounds)
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximize-changed', true)
+  })
+
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximize-changed', false)
+  })
 
   mainWindow.on('close', (event) => {
     if (!isAppQuitting) {
@@ -246,12 +523,12 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Launch on Windows Startup',
+      label: process.platform === 'darwin' ? 'Launch at Login' : 'Launch at Startup',
       type: 'checkbox',
       checked: startupSetting.openAtLogin,
       click: (item) => {
         const next = item.checked
-        app.setLoginItemSettings({ openAtLogin: next, openAsHidden: getSetting('start_minimized') === 'true' })
+        updateAutoStart(next, getSetting('start_minimized') === 'true')
         setSetting('launch_on_startup', String(next))
       }
     },
@@ -282,13 +559,21 @@ if (gotSingleInstanceLock) {
   })
 
   app.whenReady().then(() => {
-    initDatabase()
-    initNotifications()
+    setupSecurityHeaders()
 
-    // Configure Windows startup setting based on database
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.hello11824.desktop')
+      ensureWindowsShortcut()
+    }
+
+    setupApplicationMenu()
+    initDatabase()
+    initNotifications(getWindowIcon)
+
+    // Configure startup setting based on database
     const launchOnStartup = getSetting('launch_on_startup') !== 'false'
     const startMinimized = getSetting('start_minimized') === 'true'
-    app.setLoginItemSettings({ openAtLogin: launchOnStartup, openAsHidden: startMinimized })
+    updateAutoStart(launchOnStartup, startMinimized)
 
     // System Tray setup
     try {
@@ -344,82 +629,243 @@ app.on('before-quit', () => {
 
 // ----------------- IPC Channel Handlers -----------------
 
+const MAX_DOC_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB max for PDF / Word documents
+const MAX_IMG_SIZE_BYTES = 15 * 1024 * 1024 // 15 MB max for images
+const MAX_BACKUP_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB max for JSON backups
+const ALLOWED_IMPORT_EXTENSIONS = new Set(['pdf', 'docx', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'])
+
 // Window Management
-ipcMain.handle('window:minimize', () => mainWindow?.minimize())
-ipcMain.handle('window:close', () => mainWindow?.hide())
-ipcMain.handle('window:toggle-pin', (_event, pinned: boolean) => {
+ipcMain.handle('window:minimize', (event) => {
+  assertAuthorizedSender(event)
+  return mainWindow?.minimize()
+})
+
+ipcMain.handle('window:maximize', (event) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow) return false
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize()
+    return false
+  } else {
+    mainWindow.maximize()
+    return true
+  }
+})
+
+ipcMain.handle('window:is-maximized', (event) => {
+  assertAuthorizedSender(event)
+  return mainWindow?.isMaximized() ?? false
+})
+
+ipcMain.handle('window:close', (event) => {
+  assertAuthorizedSender(event)
+  return mainWindow?.hide()
+})
+
+ipcMain.handle('window:toggle-pin', (event, pinned: boolean) => {
+  assertAuthorizedSender(event)
   const next = Boolean(pinned)
   applyPinnedState(next)
   setSetting('pinned', String(next))
   updateTrayMenu()
   return next
 })
-ipcMain.handle('window:set-mode', (_event, mode: 'compact' | 'standard') => {
+
+ipcMain.handle('window:set-mode', (event, mode: 'compact' | 'standard') => {
+  assertAuthorizedSender(event)
   if (!mainWindow) return
   const bounds = mainWindow.getBounds()
   if (mode === 'compact') {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+    }
     mainWindow.setBounds({ width: 720, height: 470, x: bounds.x, y: bounds.y })
     setSetting('widget_mode', 'compact')
   } else {
     mainWindow.setBounds({ width: 940, height: 600, x: Math.max(40, bounds.x - 110), y: bounds.y })
     setSetting('widget_mode', 'standard')
   }
+  mainWindow.webContents.send('widget:mode-changed', mode)
   return mode
 })
-ipcMain.handle('window:open-external', async (_event, url: string) => {
-  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+
+ipcMain.handle('window:open-external', async (event, url: string) => {
+  assertAuthorizedSender(event)
+  if (typeof url === 'string' && isSafeExternalUrl(url)) {
     await shell.openExternal(url)
+    return true
   }
+  console.warn(`[Security] Blocked attempt to open unauthorized external URL: ${url}`)
+  return false
 })
 
 // Settings
-ipcMain.handle('settings:get', (_event, key: string) => getSetting(key))
-ipcMain.handle('settings:set', (_event, key: string, value: string) => {
-  setSetting(key, value)
+ipcMain.handle('settings:get', (event, key: string) => {
+  assertAuthorizedSender(event)
+  return getSetting(String(key))
+})
+
+ipcMain.handle('settings:set', (event, key: string, value: string) => {
+  assertAuthorizedSender(event)
+  setSetting(String(key), String(value))
   updateTrayMenu()
   return true
 })
-ipcMain.handle('settings:get-all', () => getAllSettings())
-ipcMain.handle('settings:update-startup', (_event, openAtLogin: boolean, openAsHidden: boolean) => {
-  app.setLoginItemSettings({ openAtLogin, openAsHidden })
+
+ipcMain.handle('settings:get-all', (event) => {
+  assertAuthorizedSender(event)
+  return getAllSettings()
+})
+
+ipcMain.handle('settings:update-startup', (event, openAtLogin: boolean, openAsHidden: boolean) => {
+  assertAuthorizedSender(event)
+  updateAutoStart(Boolean(openAtLogin), Boolean(openAsHidden))
   setSetting('launch_on_startup', String(openAtLogin))
   setSetting('start_minimized', String(openAsHidden))
   updateTrayMenu()
   return app.getLoginItemSettings()
 })
-ipcMain.handle('settings:get-startup-status', () => app.getLoginItemSettings())
+
+ipcMain.handle('settings:get-startup-status', (event) => {
+  assertAuthorizedSender(event)
+  return app.getLoginItemSettings()
+})
 
 // Tasks
-ipcMain.handle('tasks:list', (_event, date?: string) => listTasks(date))
-ipcMain.handle('tasks:add', (_event, payload) => addTask(payload))
-ipcMain.handle('tasks:update', (_event, id: number, payload) => updateTask(Number(id), payload))
-ipcMain.handle('tasks:toggle', (_event, id: number, completed: boolean) => toggleTask(Number(id), completed))
-ipcMain.handle('tasks:delete', (_event, id: number) => deleteTask(Number(id)))
-ipcMain.handle('tasks:rollover', (_event, fromDate: string, toDate: string) => rolloverTasks(fromDate, toDate))
+ipcMain.handle('tasks:list', (event, date?: string) => {
+  assertAuthorizedSender(event)
+  return listTasks(date ? String(date) : undefined)
+})
+
+ipcMain.handle('tasks:add', (event, payload) => {
+  assertAuthorizedSender(event)
+  return addTask(payload)
+})
+
+ipcMain.handle('tasks:update', (event, id: number, payload) => {
+  assertAuthorizedSender(event)
+  return updateTask(Number(id), payload)
+})
+
+ipcMain.handle('tasks:toggle', (event, id: number, completed: boolean) => {
+  assertAuthorizedSender(event)
+  return toggleTask(Number(id), Boolean(completed))
+})
+
+ipcMain.handle('tasks:delete', (event, id: number) => {
+  assertAuthorizedSender(event)
+  return deleteTask(Number(id))
+})
+
+ipcMain.handle('tasks:rollover', (event, fromDate: string, toDate: string) => {
+  assertAuthorizedSender(event)
+  return rolloverTasks(String(fromDate), String(toDate))
+})
+
+// Smart Free Time Task Suggestions
+ipcMain.handle('free-time:get-suggestion', (event) => {
+  assertAuthorizedSender(event)
+  return getFreeTimeSuggestion()
+})
+
+ipcMain.handle('free-time:snooze', (event, minutes?: number) => {
+  assertAuthorizedSender(event)
+  snoozeFreeTimeReminder(minutes ? Number(minutes) : undefined)
+  return true
+})
+
+ipcMain.handle('free-time:dismiss', (event, slotKey: string) => {
+  assertAuthorizedSender(event)
+  dismissFreeTimeReminder(String(slotKey))
+  return true
+})
+
+ipcMain.handle('free-time:complete-task', (event, taskId: number) => {
+  assertAuthorizedSender(event)
+  return completeSuggestedTask(Number(taskId))
+})
 
 // Subjects / Timetable
-ipcMain.handle('subjects:list', () => listClasses())
-ipcMain.handle('subjects:add', (_event, payload) => addClass(payload))
-ipcMain.handle('subjects:update', (_event, id: number, payload) => updateClass(Number(id), payload))
-ipcMain.handle('subjects:delete', (_event, id: number) => deleteClass(Number(id)))
-ipcMain.handle('subjects:replace', (_event, items, sourceFileName?: string) => replaceClasses(items, sourceFileName))
-ipcMain.handle('subjects:append', (_event, items, sourceFileName?: string) => appendClasses(items, sourceFileName))
+ipcMain.handle('subjects:list', (event) => {
+  assertAuthorizedSender(event)
+  return listClasses()
+})
+
+ipcMain.handle('subjects:add', (event, payload) => {
+  assertAuthorizedSender(event)
+  return addClass(payload)
+})
+
+ipcMain.handle('subjects:update', (event, id: number, payload) => {
+  assertAuthorizedSender(event)
+  return updateClass(Number(id), payload)
+})
+
+ipcMain.handle('subjects:delete', (event, id: number) => {
+  assertAuthorizedSender(event)
+  return deleteClass(Number(id))
+})
+
+ipcMain.handle('subjects:replace', (event, items, sourceFileName?: string) => {
+  assertAuthorizedSender(event)
+  return replaceClasses(items, sourceFileName ? String(sourceFileName) : undefined)
+})
+
+ipcMain.handle('subjects:append', (event, items, sourceFileName?: string) => {
+  assertAuthorizedSender(event)
+  return appendClasses(items, sourceFileName ? String(sourceFileName) : undefined)
+})
 
 // Classes / Timetable (backward compatibility)
-ipcMain.handle('classes:list', () => listClasses())
-ipcMain.handle('classes:add', (_event, payload) => addClass(payload))
-ipcMain.handle('classes:update', (_event, id: number, payload) => updateClass(Number(id), payload))
-ipcMain.handle('classes:delete', (_event, id: number) => deleteClass(Number(id)))
-ipcMain.handle('classes:replace', (_event, classes, sourceFileName?: string) => replaceClasses(classes, sourceFileName))
-ipcMain.handle('classes:append', (_event, classes, sourceFileName?: string) => appendClasses(classes, sourceFileName))
+ipcMain.handle('classes:list', (event) => {
+  assertAuthorizedSender(event)
+  return listClasses()
+})
+
+ipcMain.handle('classes:add', (event, payload) => {
+  assertAuthorizedSender(event)
+  return addClass(payload)
+})
+
+ipcMain.handle('classes:update', (event, id: number, payload) => {
+  assertAuthorizedSender(event)
+  return updateClass(Number(id), payload)
+})
+
+ipcMain.handle('classes:delete', (event, id: number) => {
+  assertAuthorizedSender(event)
+  return deleteClass(Number(id))
+})
+
+ipcMain.handle('classes:replace', (event, classes, sourceFileName?: string) => {
+  assertAuthorizedSender(event)
+  return replaceClasses(classes, sourceFileName ? String(sourceFileName) : undefined)
+})
+
+ipcMain.handle('classes:append', (event, classes, sourceFileName?: string) => {
+  assertAuthorizedSender(event)
+  return appendClasses(classes, sourceFileName ? String(sourceFileName) : undefined)
+})
 
 // Daily Plans
-ipcMain.handle('daily-plans:get', (_event, date: string) => getDailyPlan(date))
-ipcMain.handle('daily-plans:save', (_event, date: string, payload) => saveDailyPlan(date, payload))
+ipcMain.handle('daily-plans:get', (event, date: string) => {
+  assertAuthorizedSender(event)
+  return getDailyPlan(String(date))
+})
+
+ipcMain.handle('daily-plans:save', (event, date: string, payload) => {
+  assertAuthorizedSender(event)
+  return saveDailyPlan(String(date), payload)
+})
 
 // Timetable Document Extraction
-ipcMain.handle('files:pick-and-extract', async () => {
-  const result = await dialog.showOpenDialog({
+ipcMain.handle('files:pick-and-extract', async (event) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+
+  // Pass mainWindow as parent so native file dialog opens in front of always-on-top window
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Timetable Document',
     properties: ['openFile'],
     filters: [
       { name: 'All Supported Formats', extensions: ['pdf', 'docx', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'] },
@@ -434,7 +880,24 @@ ipcMain.handle('files:pick-and-extract', async () => {
   }
 
   const filePath = result.filePaths[0]
+  if (!existsSync(filePath)) {
+    throw new Error('Selected file does not exist on disk.')
+  }
+
   const ext = (filePath.split('.').pop() || '').toLowerCase()
+  if (!ALLOWED_IMPORT_EXTENSIONS.has(ext)) {
+    throw new Error(`Unsupported file type (.${ext}). Allowed formats: PDF, DOCX, PNG, JPG, WEBP, BMP, TIFF.`)
+  }
+
+  const stats = statSync(filePath)
+  const isImage = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'].includes(ext)
+  const maxSize = isImage ? MAX_IMG_SIZE_BYTES : MAX_DOC_SIZE_BYTES
+  if (stats.size > maxSize) {
+    const limitMb = Math.round(maxSize / (1024 * 1024))
+    const actualMb = (stats.size / (1024 * 1024)).toFixed(1)
+    throw new Error(`File is too large (${actualMb} MB). Maximum allowed size is ${limitMb} MB.`)
+  }
+
   const fileName = filePath.split(/[\\/]/).pop() || 'document'
 
   let rawText = ''
@@ -480,14 +943,18 @@ ipcMain.handle('files:pick-and-extract', async () => {
 })
 
 // Parse arbitrary text (e.g. after OCR finishes or when user edits raw text)
-ipcMain.handle('files:parse-text', (_event, text: string) => {
+ipcMain.handle('files:parse-text', (event, text: string) => {
+  assertAuthorizedSender(event)
+  if (typeof text !== 'string') return []
   return parseTimetableText(text)
 })
 
 // Data Backup & Export / Import
-ipcMain.handle('data:export', async () => {
+ipcMain.handle('data:export', async (event) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return false
   const data = exportAllData()
-  const saveResult = await dialog.showSaveDialog({
+  const saveResult = await dialog.showSaveDialog(mainWindow, {
     title: 'Export Hello 118:24 Data Backup',
     defaultPath: `hello11824-backup-${new Date().toISOString().slice(0, 10)}.json`,
     filters: [{ name: 'JSON Backup (*.json)', extensions: ['json'] }]
@@ -501,8 +968,10 @@ ipcMain.handle('data:export', async () => {
   return true
 })
 
-ipcMain.handle('data:import', async () => {
-  const openResult = await dialog.showOpenDialog({
+ipcMain.handle('data:import', async (event) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const openResult = await dialog.showOpenDialog(mainWindow, {
     title: 'Restore Hello 118:24 Backup',
     properties: ['openFile'],
     filters: [{ name: 'JSON Backup (*.json)', extensions: ['json'] }]
@@ -512,12 +981,23 @@ ipcMain.handle('data:import', async () => {
     return false
   }
 
-  const raw = readFileSync(openResult.filePaths[0], 'utf-8')
+  const filePath = openResult.filePaths[0]
+  if (!existsSync(filePath)) {
+    throw new Error('Backup file not found on disk.')
+  }
+
+  const stats = statSync(filePath)
+  if (stats.size > MAX_BACKUP_SIZE_BYTES) {
+    throw new Error('Backup file exceeds the 10 MB maximum allowed size.')
+  }
+
+  const raw = readFileSync(filePath, 'utf-8')
   const json = JSON.parse(raw)
   return importAllData(json)
 })
 
-ipcMain.handle('data:clear', (_event, options: { tasks?: boolean; classes?: boolean; plans?: boolean }) => {
+ipcMain.handle('data:clear', (event, options: { tasks?: boolean; classes?: boolean; plans?: boolean }) => {
+  assertAuthorizedSender(event)
   clearAllData(options)
   return true
 })

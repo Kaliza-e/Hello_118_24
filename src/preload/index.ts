@@ -8,6 +8,7 @@ export interface TaskPayload {
   priority?: 'low' | 'normal' | 'high'
   category?: string
   classId?: number
+  estimatedMinutes?: number | null
 }
 
 export interface TaskUpdatePayload {
@@ -19,6 +20,7 @@ export interface TaskUpdatePayload {
   completed?: boolean
   category?: string | null
   classId?: number | null
+  estimatedMinutes?: number | null
 }
 
 export interface ClassPayload {
@@ -47,14 +49,19 @@ export interface DailyPlanPayload {
 }
 
 const api = {
+  // Platform
+  platform: process.platform as 'win32' | 'darwin' | 'linux',
+
   // Window
   minimize: () => ipcRenderer.invoke('window:minimize'),
+  maximize: () => ipcRenderer.invoke('window:maximize'),
+  isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   hide: () => ipcRenderer.invoke('window:close'),
   togglePin: (pinned: boolean) => ipcRenderer.invoke('window:toggle-pin', pinned),
   setMode: (mode: 'compact' | 'standard') => ipcRenderer.invoke('window:set-mode', mode),
   openExternal: (url: string) => ipcRenderer.invoke('window:open-external', url),
-  onModeChanged: (callback: () => void) => {
-    const handler = () => callback()
+  onModeChanged: (callback: (mode?: 'compact' | 'standard') => void) => {
+    const handler = (_event: any, mode: any) => callback(mode)
     ipcRenderer.on('widget:mode-changed', handler)
     return () => ipcRenderer.removeListener('widget:mode-changed', handler)
   },
@@ -62,6 +69,11 @@ const api = {
     const handler = (_event: any, pinned: boolean) => callback(pinned)
     ipcRenderer.on('window:pinned-changed', handler)
     return () => ipcRenderer.removeListener('window:pinned-changed', handler)
+  },
+  onMaximizeChanged: (callback: (isMax: boolean) => void) => {
+    const handler = (_event: any, isMax: boolean) => callback(isMax)
+    ipcRenderer.on('window:maximize-changed', handler)
+    return () => ipcRenderer.removeListener('window:maximize-changed', handler)
   },
 
   // Settings
@@ -78,6 +90,12 @@ const api = {
   toggleTask: (id: number, completed: boolean) => ipcRenderer.invoke('tasks:toggle', id, completed),
   deleteTask: (id: number) => ipcRenderer.invoke('tasks:delete', id),
   rolloverTasks: (fromDate: string, toDate: string) => ipcRenderer.invoke('tasks:rollover', fromDate, toDate),
+
+  // Smart Free Time Task Suggestions
+  getFreeTimeSuggestion: () => ipcRenderer.invoke('free-time:get-suggestion'),
+  snoozeFreeTimeReminder: (minutes?: number) => ipcRenderer.invoke('free-time:snooze', minutes),
+  dismissFreeTimeReminder: (slotKey: string) => ipcRenderer.invoke('free-time:dismiss', slotKey),
+  completeSuggestedTask: (taskId: number) => ipcRenderer.invoke('free-time:complete-task', taskId),
 
   // Subjects / Classes
   listSubjects: () => ipcRenderer.invoke('subjects:list'),
