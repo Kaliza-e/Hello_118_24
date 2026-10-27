@@ -35,9 +35,10 @@ import {
   dismissFreeTimeReminder,
   completeSuggestedTask
 } from './freeTimeEngine'
+import { initLogger, logInfo, logWarn, logError } from './logger'
 
-// Set application name and Windows AppUserModelID early for native toast attribution
-app.name = 'Hello 118:24'
+// Set application name without illegal filesystem characters (such as ':')
+app.name = 'Hello 11824'
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.hello11824.desktop')
 }
@@ -47,27 +48,54 @@ let tray: Tray | null = null
 let isAppQuitting = false
 const isDev = !app.isPackaged
 
-// In development, isolate userData to prevent GPU/cache conflicts and DB collisions
-// with the installed production app running in the background.
-if (isDev) {
-  const devUserData = join(app.getPath('appData'), 'hello-118-24-dev')
-  app.setPath('userData', devUserData)
-}
+// Always set an explicit, valid userData path before requesting single-instance lock
+// or initializing SQLite/Chromium storage (preventing illegal filename issues on Windows).
+const userDataPath = join(app.getPath('appData'), isDev ? 'hello-118-24-dev' : 'hello-118-24')
+app.setPath('userData', userDataPath)
+
+// Initialize diagnostic logger early
+initLogger(userDataPath)
+logInfo(`[Startup] Hello 118:24 v${app.getVersion()} starting... (isDev=${isDev}, platform=${process.platform}, arch=${process.arch})`)
+logInfo(`[Startup] Executable: ${process.execPath}`)
+logInfo(`[Startup] UserData: ${userDataPath}`)
 
 const gotSingleInstanceLock = isDev ? true : app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
+  logWarn('[Startup] Another instance is already running. Quitting this instance.')
   app.quit()
 }
 
 export function getWindowIcon(): string {
   if (process.platform === 'linux') {
-    const pngPath = join(__dirname, '../../build/icon.png')
-    if (existsSync(pngPath)) return pngPath
+    const candidateLinuxPaths = [
+      join(__dirname, '../../build/icon.png'),
+      join(__dirname, '../build/icon.png'),
+      join(app.getAppPath(), 'build/icon.png')
+    ]
+    for (const p of candidateLinuxPaths) {
+      if (existsSync(p)) return p
+    }
   }
-  const icoPath = join(__dirname, '../../build/icon.ico')
-  if (existsSync(icoPath) && process.platform === 'win32') return icoPath
-  const pngPath = join(__dirname, '../../build/icon.png')
-  if (existsSync(pngPath)) return pngPath
+
+  const candidatePaths = [
+    join(__dirname, '../../build/icon.ico'),
+    join(__dirname, '../build/icon.ico'),
+    join(__dirname, '../../build/icon.png'),
+    join(__dirname, '../build/icon.png'),
+    join(app.getAppPath(), 'build/icon.ico'),
+    join(app.getAppPath(), 'build/icon.png')
+  ]
+
+  if (process.platform === 'win32') {
+    for (const p of candidatePaths) {
+      if (p.endsWith('.ico') && existsSync(p)) return p
+    }
+  }
+
+  for (const p of candidatePaths) {
+    if (existsSync(p)) return p
+  }
+
   return join(app.getAppPath(), 'build/icon.png')
 }
 
@@ -413,23 +441,32 @@ function createWindow() {
     }
   })
 
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-    console.error('Failed to load page:', errorCode, errorDescription)
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logError(`[Renderer] Failed to load ${validatedURL}: [${errorCode}] ${errorDescription}`)
     if (isDev && process.env.ELECTRON_RENDERER_URL) {
       const fallbackHtml = join(__dirname, '../renderer/index.html')
       if (existsSync(fallbackHtml)) {
-        mainWindow?.loadFile(fallbackHtml)
+        mainWindow?.loadFile(fallbackHtml).catch((e) => logError('[Renderer] Fallback loadFile failed:', e))
       }
+    } else {
+      dialog.showErrorBox(
+        'Hello 118:24 - Startup Load Error',
+        `The application interface failed to load (${errorDescription} [${errorCode}]).\n\nPlease review the logs at:\n${userDataPath}\\logs\\app.log`
+      )
     }
   })
 
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logError(`[Renderer] Process gone: reason=${details.reason}, exitCode=${details.exitCode}`)
+  })
+
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[Hello 118:24] Renderer loaded successfully.')
+    logInfo('[Hello 118:24] Renderer loaded successfully.')
   })
 
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (isDev) {
-      console.log(`[Renderer]: ${message} (${sourceId}:${line})`)
+    if (isDev || level >= 2) {
+      logInfo(`[Renderer Console] [level=${level}] ${message} (${sourceId}:${line})`)
     }
   })
 
@@ -450,7 +487,9 @@ function createWindow() {
         applyPinnedState(true)
       }
       const b = mainWindow.getBounds()
-      console.log(`[Hello 118:24] Window is visible: ${mainWindow.isVisible()} (${b.width}x${b.height} at x=${b.x}, y=${b.y})`)
+      logInfo(`[Hello 118:24] Window displayed: isVisible=${mainWindow.isVisible()} (${b.width}x${b.height} at x=${b.x}, y=${b.y})`)
+    } else {
+      logInfo('[Hello 118:24] Started minimized to system tray.')
     }
   }
 
@@ -507,11 +546,13 @@ function createWindow() {
     }
   })
 
-  if (isDev && process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  const loadPromise = isDev && process.env.ELECTRON_RENDERER_URL
+    ? mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    : mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+
+  loadPromise.catch((err) => {
+    logError('[MainWindow] Failed to load renderer URL or file:', err)
+  })
 }
 
 function updateTrayMenu() {
@@ -600,47 +641,66 @@ if (gotSingleInstanceLock) {
   })
 
   app.whenReady().then(() => {
-    setupSecurityHeaders()
-
-    if (process.platform === 'win32') {
-      app.setAppUserModelId('com.hello11824.desktop')
-      ensureWindowsShortcut()
-    }
-
-    setupApplicationMenu()
-    initDatabase()
-    initNotifications(getWindowIcon)
-
-    // Configure startup setting based on database
-    const launchOnStartup = getSetting('launch_on_startup') !== 'false'
-    const startMinimized = getSetting('start_minimized') === 'true'
-    updateAutoStart(launchOnStartup, startMinimized)
-
-    // System Tray setup
+    logInfo('[App] app.whenReady fired. Initializing subsystems...')
     try {
-      const icon = createTrayIcon()
-      tray = new Tray(icon)
-      tray.setToolTip('Hello 118:24 — Daily Planner & Timetable')
-      updateTrayMenu()
-      tray.on('click', () => {
-        if (mainWindow) {
-          if (mainWindow.isVisible()) {
-            mainWindow.focus()
-          } else {
-            mainWindow.show()
-            mainWindow.focus()
-            const pinned = getSetting('pinned') !== 'false'
-            if (pinned) {
-              applyPinnedState(true)
+      setupSecurityHeaders()
+
+      if (process.platform === 'win32') {
+        app.setAppUserModelId('com.hello11824.desktop')
+        ensureWindowsShortcut()
+      }
+
+      setupApplicationMenu()
+
+      logInfo('[Database] Initializing SQLite database...')
+      initDatabase()
+      logInfo('[Database] SQLite database initialized successfully.')
+
+      initNotifications(getWindowIcon)
+      logInfo('[Notifications] Notifications system initialized.')
+
+      // Configure startup setting based on database
+      const launchOnStartup = getSetting('launch_on_startup') !== 'false'
+      const startMinimized = getSetting('start_minimized') === 'true'
+      updateAutoStart(launchOnStartup, startMinimized)
+
+      // System Tray setup
+      try {
+        const icon = createTrayIcon()
+        tray = new Tray(icon)
+        tray.setToolTip('Hello 118:24 — Daily Planner & Timetable')
+        updateTrayMenu()
+        tray.on('click', () => {
+          if (mainWindow) {
+            if (mainWindow.isVisible()) {
+              mainWindow.focus()
+            } else {
+              mainWindow.show()
+              mainWindow.focus()
+              const pinned = getSetting('pinned') !== 'false'
+              if (pinned) {
+                applyPinnedState(true)
+              }
             }
           }
-        }
-      })
-    } catch (err) {
-      console.error('Failed to initialize tray:', err)
-    }
+        })
+        logInfo('[Tray] System tray initialized.')
+      } catch (err) {
+        logError('[Tray] Failed to initialize tray:', err)
+      }
 
-    createWindow()
+      logInfo('[Window] Creating main application window...')
+      createWindow()
+      logInfo('[Window] Main application window created.')
+    } catch (err) {
+      logError('[App] Critical error during app.whenReady initialization:', err)
+      if (app.isPackaged) {
+        dialog.showErrorBox(
+          'Hello 118:24 - Startup Initialization Failed',
+          `A critical error occurred while starting the application:\n\n${err instanceof Error ? err.stack || err.message : String(err)}\n\nPlease check the logs in:\n${userDataPath}\\logs\\app.log`
+        )
+      }
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -661,6 +721,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && isAppQuitting) {
     app.quit()
   }
+})
+
+app.on('child-process-gone', (_event, details) => {
+  logWarn(`[ChildProcess] Process gone: type=${details.type}, reason=${details.reason}, exitCode=${details.exitCode}`)
 })
 
 app.on('before-quit', () => {

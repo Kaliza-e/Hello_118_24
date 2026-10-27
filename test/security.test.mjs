@@ -70,7 +70,7 @@ describe('Security & Hardening Audit Verification', () => {
 
   it('IPC Security: assertAuthorizedSender validates main frame identity', () => {
     const indexPath = resolve('src/main/index.ts')
-    const code = readFileSync(indexPath, 'utf-8')
+    const code = readFileSync(indexPath, 'utf-8').replace(/\r\n/g, '\n')
 
     assert.ok(code.includes('assertAuthorizedSender'), 'assertAuthorizedSender function must be defined')
     assert.ok(code.includes('event.senderFrame === mainWindow.webContents.mainFrame'), 'Must compare senderFrame to mainFrame')
@@ -84,7 +84,7 @@ describe('Security & Hardening Audit Verification', () => {
 
   it('File Import Security: enforces strict file limits and extension allowlist', () => {
     const indexPath = resolve('src/main/index.ts')
-    const code = readFileSync(indexPath, 'utf-8')
+    const code = readFileSync(indexPath, 'utf-8').replace(/\r\n/g, '\n')
 
     assert.ok(code.includes('MAX_DOC_SIZE_BYTES'), 'Document size limits must be declared')
     assert.ok(code.includes('MAX_IMG_SIZE_BYTES'), 'Image size limits must be declared')
@@ -94,7 +94,7 @@ describe('Security & Hardening Audit Verification', () => {
 
   it('Database Security: parameterized queries and automated pre-mutation backups', () => {
     const dbPath = resolve('src/main/db.ts')
-    const code = readFileSync(dbPath, 'utf-8')
+    const code = readFileSync(dbPath, 'utf-8').replace(/\r\n/g, '\n')
 
     assert.ok(code.includes('createDatabaseBackup'), 'createDatabaseBackup function must exist')
     assert.ok(code.includes("db.pragma('integrity_check')"), 'integrity_check PRAGMA must be run on launch')

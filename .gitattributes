@@ -1,0 +1,10 @@
+# Ensure consistent line endings across operating systems
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.sqlite binary
+*.db binary

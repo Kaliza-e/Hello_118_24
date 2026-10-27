@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "private": true,
   "description": "Hello 118:24 — A personal desktop companion for school, productivity, timetable management, and daily planning across Windows, macOS, and Linux",
-  "author": "Kaliza-e",
+  "author": "Kaliza Esther <kalizaesther5@gmail.com>",
   "license": "MIT",
   "main": "./out/main/index.js",
   "scripts": {
@@ -58,6 +58,8 @@
     },
     "files": [
       "out/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "package.json"
     ],
     "asarUnpack": [
@@ -127,6 +129,7 @@
     "linux": {
       "icon": "build/icon.png",
       "category": "Education",
+      "maintainer": "Kaliza Esther <kalizaesther5@gmail.com>",
       "target": [
         {
           "target": "AppImage",
