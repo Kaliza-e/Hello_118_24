@@ -55,7 +55,7 @@ export function UndoToast({
         maxWidth: '90vw'
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#10b981' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--priority-low-text)' }}>
         <CheckCircle2 size={16} />
       </div>
 
@@ -100,7 +100,7 @@ export function UndoToast({
         style={{
           background: 'transparent',
           border: 'none',
-          color: '#64748b',
+          color: 'var(--text-muted)',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',

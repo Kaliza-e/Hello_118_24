@@ -399,7 +399,6 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                   type="button"
                   className="btn-pill-action"
                   onClick={handleOpenAddModal}
-                  style={{ background: 'rgba(167, 136, 250, 0.15)', color: '#a788fa', border: '1px solid rgba(167, 136, 250, 0.3)' }}
                 >
                   <Plus size={12} /> Add Subject
                 </button>
@@ -423,8 +422,8 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                           gridTemplateColumns: '110px 1.4fr 1fr auto auto',
                           gap: 10,
                           alignItems: 'center',
-                          background: hasWarning ? 'rgba(245, 158, 11, 0.08)' : 'var(--bg-card-inner)',
-                          border: `1px solid ${hasWarning ? 'rgba(245, 158, 11, 0.35)' : 'var(--border-subtle)'}`,
+                          background: hasWarning ? 'var(--priority-med-bg)' : 'var(--bg-card-inner)',
+                          border: `1px solid ${hasWarning ? 'var(--priority-med-text)' : 'var(--border-subtle)'}`,
                           borderRadius: 'var(--radius-sm)',
                           padding: '8px 12px',
                           transition: 'background 0.15s ease'
@@ -440,11 +439,11 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
 
                         {/* Subject Title */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: candidate.title ? 'var(--text-primary)' : '#f87171' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: candidate.title ? 'var(--text-primary)' : 'var(--priority-high-text)' }}>
                             {candidate.title || '(Untitled Subject)'}
                           </span>
                           {candidate.warning && (
-                            <span style={{ fontSize: 10.5, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 10.5, color: 'var(--priority-med-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                               <AlertTriangle size={11} /> {candidate.warning}
                             </span>
                           )}
@@ -463,8 +462,8 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                           {hasWarning ? (
                             <span
                               style={{
-                                background: 'rgba(245, 158, 11, 0.16)',
-                                color: '#f59e0b',
+                                background: 'var(--priority-med-bg)',
+                                color: 'var(--priority-med-text)',
                                 padding: '2px 6px',
                                 borderRadius: 4,
                                 fontSize: 10.5,
@@ -476,8 +475,8 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                           ) : (
                             <span
                               style={{
-                                background: 'rgba(52, 211, 153, 0.15)',
-                                color: '#34d399',
+                                background: 'var(--priority-low-bg)',
+                                color: 'var(--priority-low-text)',
                                 padding: '2px 6px',
                                 borderRadius: 4,
                                 fontSize: 10.5,
@@ -593,11 +592,11 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
-                      background: 'rgba(245, 158, 11, 0.1)',
-                      border: '1px solid rgba(245, 158, 11, 0.25)',
+                      background: 'var(--priority-med-bg)',
+                      border: '1px solid var(--priority-med-text)',
                       borderRadius: 6,
                       padding: '8px 12px',
-                      color: '#fbbf24',
+                      color: 'var(--priority-med-text)',
                       fontSize: 12
                     }}
                   >
@@ -612,11 +611,11 @@ export function ImportReviewModal({ isOpen, onClose, importResult, onConfirm }: 
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
-                      background: 'rgba(52, 211, 153, 0.1)',
-                      border: '1px solid rgba(52, 211, 153, 0.25)',
+                      background: 'var(--priority-low-bg)',
+                      border: '1px solid var(--priority-low-text)',
                       borderRadius: 6,
                       padding: '8px 12px',
-                      color: '#34d399',
+                      color: 'var(--priority-low-text)',
                       fontSize: 12
                     }}
                   >

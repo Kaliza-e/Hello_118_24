@@ -8,6 +8,6 @@ export default defineConfig({
   renderer: {
     resolve: { alias: { '@': resolve('src/renderer/src') } },
     plugins: [react()],
-    server: { host: '127.0.0.1' }
+    server: { host: '127.0.0.1', port: 51824 }
   }
 })

@@ -128,11 +128,11 @@ export function SubjectModal({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  background: 'var(--priority-high-bg)',
+                  border: '1px solid var(--priority-high-text)',
                   borderRadius: 'var(--radius-sm)',
                   padding: '8px 12px',
-                  color: '#fca5a5',
+                  color: 'var(--priority-high-text)',
                   fontSize: 12
                 }}
               >

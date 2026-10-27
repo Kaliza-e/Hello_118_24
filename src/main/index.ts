@@ -54,7 +54,7 @@ if (isDev) {
   app.setPath('userData', devUserData)
 }
 
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+const gotSingleInstanceLock = isDev ? true : app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
   app.quit()
 }
@@ -304,14 +304,18 @@ export function isSafeExternalUrl(targetUrl: string): boolean {
 
 export function setupSecurityHeaders(): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const connectSrc = isDev
+      ? "connect-src 'self' blob: data: ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:* https://api.github.com https://github.com https://fonts.googleapis.com https://fonts.gstatic.com"
+      : "connect-src 'self' blob: data: https://api.github.com https://github.com https://fonts.googleapis.com https://fonts.gstatic.com"
+
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-eval' blob:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob:",
       "worker-src 'self' blob:",
-      "connect-src 'self' blob: data: https://api.github.com https://github.com https://fonts.googleapis.com https://fonts.gstatic.com",
+      connectSrc,
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -351,6 +355,8 @@ function createWindow() {
   const savedY = parseInt(getSetting('window_y') || '-9999', 10)
   const isPinned = getSetting('pinned') !== 'false'
 
+  const hasSavedPos = !isNaN(savedX) && !isNaN(savedY) && savedX !== -9999 && savedY !== -9999
+
   let initialBounds = {
     width: isNaN(savedWidth) || savedWidth < 480 ? defaultWidth : savedWidth,
     height: isNaN(savedHeight) || savedHeight < 420 ? defaultHeight : savedHeight,
@@ -358,15 +364,15 @@ function createWindow() {
     y: savedY
   }
 
-  if (savedX !== -9999 && savedY !== -9999) {
+  if (hasSavedPos) {
     initialBounds = ensureWindowWithinDisplayBounds(initialBounds.x, initialBounds.y, initialBounds.width, initialBounds.height)
   }
 
   mainWindow = new BrowserWindow({
     width: initialBounds.width,
     height: initialBounds.height,
-    x: savedX !== -9999 ? initialBounds.x : undefined,
-    y: savedY !== -9999 ? initialBounds.y : undefined,
+    x: hasSavedPos ? initialBounds.x : undefined,
+    y: hasSavedPos ? initialBounds.y : undefined,
     minWidth: 480,
     minHeight: 420,
     frame: false,
@@ -407,21 +413,51 @@ function createWindow() {
     }
   })
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('Failed to load page:', errorCode, errorDescription)
+    if (isDev && process.env.ELECTRON_RENDERER_URL) {
+      const fallbackHtml = join(__dirname, '../renderer/index.html')
+      if (existsSync(fallbackHtml)) {
+        mainWindow?.loadFile(fallbackHtml)
+      }
+    }
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Hello 118:24] Renderer loaded successfully.')
+  })
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (isDev) {
+      console.log(`[Renderer]: ${message} (${sourceId}:${line})`)
+    }
+  })
+
   initUpdater(mainWindow)
 
-  mainWindow.once('ready-to-show', () => {
+  const showMainWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
     const wasOpenedAsHidden = app.getLoginItemSettings().wasOpenedAsHidden || process.argv.includes('--hidden')
     const startMinimized = getSetting('start_minimized') === 'true'
 
     // If opened directly by user (or in dev), always show the widget immediately
     if (!startMinimized || !wasOpenedAsHidden || isDev) {
-      mainWindow?.show()
-      mainWindow?.focus()
+      if (!mainWindow.isVisible()) {
+        mainWindow.show()
+      }
+      mainWindow.focus()
       if (isPinned) {
         applyPinnedState(true)
       }
+      const b = mainWindow.getBounds()
+      console.log(`[Hello 118:24] Window is visible: ${mainWindow.isVisible()} (${b.width}x${b.height} at x=${b.x}, y=${b.y})`)
     }
-  })
+  }
+
+  mainWindow.once('ready-to-show', showMainWindow)
+
+  // Safety fallback: ensure window is revealed even if ready-to-show event was delayed or missed
+  setTimeout(showMainWindow, 800)
 
   // Ensure pinned topmost status sticks on Windows blur and show
   mainWindow.on('show', () => {
@@ -460,6 +496,11 @@ function createWindow() {
   })
 
   mainWindow.on('close', (event) => {
+    if (isDev) {
+      isAppQuitting = true
+      app.quit()
+      return
+    }
     if (!isAppQuitting) {
       event.preventDefault()
       mainWindow?.hide()

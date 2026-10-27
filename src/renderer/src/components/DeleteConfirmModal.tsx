@@ -37,11 +37,11 @@ export function DeleteConfirmModal({
                 width: 32,
                 height: 32,
                 borderRadius: '50%',
-                background: 'rgba(239, 68, 68, 0.15)',
+                background: 'var(--priority-high-bg)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#f87171'
+                color: 'var(--priority-high-text)'
               }}
             >
               <Trash2 size={16} />

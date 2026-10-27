@@ -567,7 +567,7 @@ export function SettingsView({
             )}
 
             {updateStatus.state === 'checking' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: '#a5b4fc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--accent-purple)' }}>
                 <RefreshCw size={13} className="spin-icon" />
                 <span>Checking GitHub Releases for new updates...</span>
               </div>
@@ -575,7 +575,7 @@ export function SettingsView({
 
             {updateStatus.state === 'available' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
                   Update v{updateStatus.availableVersion || ''} is available!
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -613,7 +613,7 @@ export function SettingsView({
 
             {updateStatus.state === 'downloaded' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#6ee7b7' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--priority-low-text)' }}>
                   Update v{updateStatus.availableVersion || ''} has finished downloading!
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
@@ -623,20 +623,20 @@ export function SettingsView({
             )}
 
             {updateStatus.state === 'not-available' && updateStatus.isPackaged && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#6ee7b7' }}>
+              <div className="update-msg-success">
                 <CheckCircle2 size={13} />
                 <span>You are on the latest version (v{appVersion}).</span>
               </div>
             )}
 
             {!updateStatus.isPackaged && (
-              <span style={{ fontSize: 11.5, color: '#fcd34d', lineHeight: 1.4 }}>
+              <span className="dev-mode-warning-text">
                 Running in Development Mode. Update checks and installation are active in packaged production releases.
               </span>
             )}
 
             {updateStatus.state === 'error' && (
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, color: '#fca5a5', lineHeight: 1.4 }}>
+              <div className="update-msg-error">
                 <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>{updateStatus.error || 'Network error checking for updates.'}</span>
               </div>

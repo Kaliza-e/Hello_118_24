@@ -186,7 +186,7 @@ export function TasksView({
                         position: 'absolute',
                         right: 0,
                         top: 26,
-                        background: '#0d1629',
+                        background: 'var(--bg-card)',
                         border: '1px solid var(--border-card)',
                         borderRadius: 8,
                         padding: 4,
@@ -195,7 +195,7 @@ export function TasksView({
                         gap: 2,
                         zIndex: 30,
                         minWidth: 100,
-                        boxShadow: '0 8px 20px rgba(0,0,0,0.6)'
+                        boxShadow: 'var(--shadow-card)'
                       }}
                     >
                       <button

@@ -72,8 +72,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libarchive-tools \
             libnotify-bin \
-            libnss3 \
-            libasound2
+            libnss3
+          sudo apt-get install -y --no-install-recommends libasound2t64 2>/dev/null || sudo apt-get install -y --no-install-recommends libasound2 || true
 
       - name: Install Node Dependencies (Reproducible)
         run: npm ci
