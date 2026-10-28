@@ -105,6 +105,8 @@ function parseScheduleText(rawText, defaultYear = 2026) {
   let currentYear = defaultYear
   let currentMonth = null
   let currentTerm = null
+  let activeDateGrid = []
+  let currentCohort = ''
 
   const yearHeaderMatch = rawText.match(/\b(20\d{2})[\s\/-](20\d{2})\b/i)
   let academicStartYear = defaultYear
@@ -120,6 +122,11 @@ function parseScheduleText(rawText, defaultYear = 2026) {
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx]
+
+    const cohortMatch = line.match(/\b(Year\s*[1-3]|SPE|GENAI)\b/i)
+    if (cohortMatch) {
+      currentCohort = cohortMatch[1]
+    }
 
     const termMatch = line.match(termHeaderRegex)
     if (termMatch) {
@@ -147,6 +154,74 @@ function parseScheduleText(rawText, defaultYear = 2026) {
         }
         continue
       }
+    }
+
+    const multiDateMatches = [...line.matchAll(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/g)]
+    if (multiDateMatches.length >= 2) {
+      activeDateGrid = multiDateMatches.map(m => {
+        const part1 = parseInt(m[1], 10)
+        const part2 = parseInt(m[2], 10)
+        let y = parseInt(m[3], 10)
+        if (y < 100) y += 2000
+        if (y > 2099 || y < 2000) y = currentYear
+
+        let day = part1
+        let month = part2
+        if (part1 <= 12 && part2 > 12) {
+          month = part1
+          day = part2
+        }
+        return `${y}-${pad2(month)}-${pad2(day)}`
+      })
+      continue
+    }
+
+    const gridTimeMatch = line.match(/(\d{1,2}(?:h:?\d{2}|:\d{2}|000))\s*(?:-|–|—|to)\s*(\d{1,2}(?:h:?\d{2}|:\d{2}|000))?/i)
+    if (gridTimeMatch && activeDateGrid.length > 0 && !line.includes('Academic Year') && !line.includes('TERM')) {
+      const startTime = normalizeScheduleTime(gridTimeMatch[1]) || undefined
+      let endTime = gridTimeMatch[2] ? normalizeScheduleTime(gridTimeMatch[2]) || undefined : undefined
+      if (!endTime && idx + 1 < lines.length && /^\d{1,2}(?:h\d{2}|000)/i.test(lines[idx + 1])) {
+        endTime = normalizeScheduleTime(lines[idx + 1]) || undefined
+      }
+
+      let content = line.replace(gridTimeMatch[0], '').replace(/^[\|\s–\-:;,]+|[\|\s–\-:;,]+$/g, '').trim()
+      if (idx + 1 < lines.length && !/^\d/.test(lines[idx + 1]) && !lines[idx + 1].includes('Days') && lines[idx + 1].length > 3) {
+        content += ' ' + lines[idx + 1]
+      }
+
+      const KNOWN_MW = ['Embedded Systems', 'Java scripts', 'AI Prompt Engineering', 'System Networking', 'Computer Basics', '3D Models', 'Adv Databases', 'Adv Networking', 'ML with Python', 'Cyber security', 'IT Projects Monetization', 'Mobile Application', 'Intelligent Robotics']
+      let remainingSub = content
+      const extractedMw = []
+      for (const mw of KNOWN_MW) {
+        const reg = new RegExp(`\\b${mw}\\b`, 'i')
+        if (reg.test(remainingSub)) {
+          remainingSub = remainingSub.replace(reg, ' ___MW___ ')
+          extractedMw.push(mw)
+        }
+      }
+      let subjects = []
+      if (content.includes('|')) {
+        subjects = content.split('|').map(s => s.trim()).filter(Boolean)
+      } else {
+        const words = remainingSub.split(/\s+/).filter(w => w && w !== '___MW___' && w.length > 1)
+        subjects = [...words, ...extractedMw]
+      }
+
+      for (let sIdx = 0; sIdx < Math.min(subjects.length, activeDateGrid.length); sIdx++) {
+        const title = subjects[sIdx] + (currentCohort ? ` (${currentCohort})` : '')
+        events.push({
+          title,
+          category: 'Exams',
+          startDate: activeDateGrid[sIdx],
+          endDate: activeDateGrid[sIdx],
+          startTime,
+          endTime,
+          isAllDay: !startTime,
+          sourceExcerpt: line,
+          confidence: 'high'
+        })
+      }
+      continue
     }
 
     if (!/\d/.test(line) && /^(date\s*[\/\-]?\s*period|category|academic\s*or\s*institutional\s*activity|time\b|days\b|day\b)/i.test(line)) {
@@ -465,6 +540,22 @@ test('Schedule Parser: parses numerical date with exam times', () => {
   assert.equal(events[1].startTime, '14:00')
   assert.equal(events[1].endTime, '17:00')
   assert.equal(events[1].isAllDay, false)
+})
+
+test('Schedule Parser: parses multi-column exam grid matrix from CATs timetable', () => {
+  const text = `
+    Year 3
+    Days Monday Tuesday Wednesday Thursday Friday
+    02/11/2026 03/11/2026 04/11/2026 05/11/2026 06/11/2026
+    8h:30 — 11h30 | Mathematics | ML with Python | Physics | Cyber security | IT Projects
+    14000-17000 | Devops | Mobile Application | English | Intelligent Robotics | Mini-CAT
+  `
+  const events = parseScheduleText(text, 2026)
+  assert.ok(events.length >= 10, 'Must extract at least 10 exam activities from grid')
+  assert.equal(events[0].startDate, '2026-11-02')
+  assert.equal(events[0].startTime, '08:30')
+  assert.equal(events[0].category, 'Exams')
+  assert.equal(events[1].startDate, '2026-11-03')
 })
 
 test('Schedule Parser: category inference covers canonical taxonomy', () => {

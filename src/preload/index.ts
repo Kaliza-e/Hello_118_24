@@ -128,6 +128,7 @@ const api = {
   // Schedules & Ingestion
   pickAndIngestSchedule: () => ipcRenderer.invoke('schedules:pick-and-ingest'),
   parseScheduleText: (text: string) => ipcRenderer.invoke('schedules:parse-text', text),
+  runScheduleOcr: (images: string[]) => ipcRenderer.invoke('schedules:run-ocr', images),
   listScheduleEvents: (filters?: any) => ipcRenderer.invoke('schedules:list-events', filters),
   getScheduleEvent: (id: number) => ipcRenderer.invoke('schedules:get-event', id),
   addScheduleEvent: (payload: any, reminders?: any[]) => ipcRenderer.invoke('schedules:add-event', payload, reminders),

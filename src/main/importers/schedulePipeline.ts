@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
+import { createWorker } from 'tesseract.js'
 import { ScheduleCategory } from '../db'
 
 export interface CandidateScheduleEvent {
@@ -118,10 +119,19 @@ export function inferCategory(text: string): ScheduleCategory {
   return 'Other'
 }
 
-// Normalizes time string (e.g. "8h:30", "11h30", "14h00", "8:30 a.m.") to HH:mm
+// Normalizes time string (e.g. "8h:30", "11h30", "14h00", "8:30 a.m.", "14000") to HH:mm
 export function normalizeScheduleTime(str: string): string | null {
   if (!str) return null
   const cleaned = str.trim().toLowerCase()
+
+  // 14000 or 17000 from OCR
+  const ocrZerosMatch = cleaned.match(/^(\d{1,2})000$/)
+  if (ocrZerosMatch) {
+    const h = parseInt(ocrZerosMatch[1], 10)
+    if (h >= 0 && h <= 23) {
+      return `${pad2(h)}:00`
+    }
+  }
 
   // 8h:30 or 8h30 or 14h00
   const hMatch = cleaned.match(/^(\d{1,2})h(?::?(\d{2}))?$/)
@@ -145,6 +155,67 @@ export function normalizeScheduleTime(str: string): string | null {
   return null
 }
 
+const KNOWN_MULTI_WORD_SUBJECTS = [
+  'Embedded Systems', 'Java scripts', 'AI Prompt Engineering', 'System Networking',
+  'Computer Basics', '3D Models', 'Adv Databases', 'Adv Networking', 'ML with Python',
+  'Cyber security', 'IT Projects Monetization', 'Mobile Application', 'Intelligent Robotics',
+  'AI-Assisted Software', 'Frontend'
+]
+
+function splitGridSubjects(str: string): string[] {
+  if (str.includes('|')) {
+    const parts = str.split('|').map(s => s.trim()).filter(Boolean)
+    if (parts.length >= 2) return parts
+  }
+  let remaining = str
+  const extracted: string[] = []
+  for (const mw of KNOWN_MULTI_WORD_SUBJECTS) {
+    const reg = new RegExp(`\\b${mw}\\b`, 'i')
+    if (reg.test(remaining)) {
+      remaining = remaining.replace(reg, ' ___MW___ ')
+      extracted.push(mw)
+    }
+  }
+  const words = remaining.split(/\s+/).filter(w => w && w !== '___MW___' && w.length > 1)
+  return [...words, ...extracted]
+}
+
+/**
+ * Universal Node-side OCR execution
+ * Runs Tesseract locally inside Node process without CDN/network dependency
+ */
+export async function performNodeOcr(images: string[]): Promise<string> {
+  if (!images || images.length === 0) return ''
+  let accumulatedText = ''
+  let worker: any = null
+  try {
+    worker = await createWorker('eng')
+    for (let idx = 0; idx < images.length; idx++) {
+      const item = images[idx]
+      let imgBuffer: Buffer
+      if (item.startsWith('data:image/')) {
+        const base64Data = item.replace(/^data:image\/\w+;base64,/, '')
+        imgBuffer = Buffer.from(base64Data, 'base64')
+      } else {
+        imgBuffer = Buffer.from(item, 'base64')
+      }
+      const res = await worker.recognize(imgBuffer)
+      if (res.data?.text && res.data.text.trim().length > 0) {
+        accumulatedText += `\n--- Page ${idx + 1} ---\n${res.data.text}\n`
+      }
+    }
+  } catch (err) {
+    console.error('Node OCR failed:', err)
+  } finally {
+    if (worker) {
+      try {
+        await worker.terminate()
+      } catch {}
+    }
+  }
+  return accumulatedText
+}
+
 /**
  * Intelligent Layout & Context-Aware Schedule Parser
  * Extracts events from text lines, tables, or OCR transcriptions
@@ -158,6 +229,8 @@ export function parseScheduleText(rawText: string, defaultYear: number = new Dat
   let currentYear = defaultYear
   let currentMonth: number | null = null // 0 = Jan, 11 = Dec
   let currentTerm: string | null = null
+  let activeDateGrid: string[] = []
+  let currentCohort = ''
 
   // Check if text has academic year header (e.g., "2026/2027 Academic Year" or "2026-2027")
   const yearHeaderMatch = rawText.match(/\b(20\d{2})[\s\/-](20\d{2})\b/i)
@@ -177,6 +250,12 @@ export function parseScheduleText(rawText: string, defaultYear: number = new Dat
 
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx]
+
+    // Track cohort header (e.g. "Year 1", "Year 2", "Year 3", "SPE", "GENAI")
+    const cohortMatch = line.match(/\b(Year\s*[1-3]|SPE|GENAI)\b/i)
+    if (cohortMatch) {
+      currentCohort = cohortMatch[1]
+    }
 
     // Check term header
     const termMatch = line.match(termHeaderRegex)
@@ -208,6 +287,59 @@ export function parseScheduleText(rawText: string, defaultYear: number = new Dat
         }
         continue
       }
+    }
+
+    // Check Pattern 0A: Grid/Matrix Date Header Row (e.g. "02/11/2026 03/11/2026 04/11/2026 05/11/2026 06/11/2026")
+    const multiDateMatches = [...line.matchAll(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/g)]
+    if (multiDateMatches.length >= 2) {
+      activeDateGrid = multiDateMatches.map(m => {
+        const part1 = parseInt(m[1], 10)
+        const part2 = parseInt(m[2], 10)
+        let y = parseInt(m[3], 10)
+        if (y < 100) y += 2000
+        if (y > 2099 || y < 2000) y = currentYear
+
+        let day = part1
+        let month = part2
+        if (part1 <= 12 && part2 > 12) {
+          month = part1
+          day = part2
+        }
+        return `${y}-${pad2(month)}-${pad2(day)}`
+      })
+      continue
+    }
+
+    // Check Pattern 0B: Time slot matching active date grid (e.g. "8h:30 — 11h30 | Mathematics FOP...")
+    const gridTimeMatch = line.match(/(\d{1,2}(?:h:?\d{2}|:\d{2}|000))\s*(?:-|–|—|to)\s*(\d{1,2}(?:h:?\d{2}|:\d{2}|000))?/i)
+    if (gridTimeMatch && activeDateGrid.length > 0 && !line.includes('Academic Year') && !line.includes('TERM')) {
+      const startTime = normalizeScheduleTime(gridTimeMatch[1]) || undefined
+      let endTime = gridTimeMatch[2] ? normalizeScheduleTime(gridTimeMatch[2]) || undefined : undefined
+      if (!endTime && idx + 1 < lines.length && /^\d{1,2}(?:h\d{2}|000)/i.test(lines[idx + 1])) {
+        endTime = normalizeScheduleTime(lines[idx + 1]) || undefined
+      }
+
+      let content = line.replace(gridTimeMatch[0], '').replace(/^[\|\s–\-:;,]+|[\|\s–\-:;,]+$/g, '').trim()
+      if (idx + 1 < lines.length && !/^\d/.test(lines[idx + 1]) && !lines[idx + 1].includes('Days') && lines[idx + 1].length > 3) {
+        content += ' ' + lines[idx + 1]
+      }
+
+      const subjects = splitGridSubjects(content)
+      for (let sIdx = 0; sIdx < Math.min(subjects.length, activeDateGrid.length); sIdx++) {
+        const title = subjects[sIdx] + (currentCohort ? ` (${currentCohort})` : '')
+        events.push({
+          title,
+          category: 'Exams',
+          startDate: activeDateGrid[sIdx],
+          endDate: activeDateGrid[sIdx],
+          startTime,
+          endTime,
+          isAllDay: !startTime,
+          sourceExcerpt: line,
+          confidence: 'high'
+        })
+      }
+      continue
     }
 
     // Skip table header lines like "DATE / PERIOD | CATEGORY | ACTIVITY"
@@ -529,6 +661,19 @@ export async function ingestScheduleDocument(
   } else {
     // Plain text or fallback
     rawText = buffer.toString('utf8')
+  }
+
+  // If document was scanned or image-based, run local Node OCR immediately
+  if (needsOcr && pageImages && pageImages.length > 0) {
+    try {
+      const ocrText = await performNodeOcr(pageImages)
+      if (ocrText.trim().length > 0) {
+        rawText = `${rawText}\n${ocrText}`.trim()
+        needsOcr = false
+      }
+    } catch (err) {
+      console.error('Failed to run local OCR during ingestion:', err)
+    }
   }
 
   // Parse candidate events from available text

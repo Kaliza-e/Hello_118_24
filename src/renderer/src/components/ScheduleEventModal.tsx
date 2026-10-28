@@ -364,11 +364,11 @@ export function ScheduleEventModal({
             </div>
           )}
 
-          <div className="modal-footer" style={{ padding: 0, marginTop: 4 }}>
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={isSubmitting}>
+          <div className="modal-footer" style={{ padding: 0, marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn-secondary-pill" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={isSubmitting}>
+            <button type="submit" className="btn-primary-pill" disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : (isEditing ? 'Update Event' : 'Create Event')}
             </button>
           </div>

@@ -478,6 +478,9 @@ export function createBrowserMockApi(): HelloAPI {
     async parseScheduleText() {
       return []
     },
+    async runScheduleOcr() {
+      return { text: '', candidates: [] }
+    },
     async listScheduleEvents(filters) {
       let events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
       if (filters?.category && filters.category !== 'All') {

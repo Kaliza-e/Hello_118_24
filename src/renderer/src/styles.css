@@ -1802,64 +1802,172 @@ select.select-field option {
 
 /* ================= Schedules Tab & Review Modal Styling ================= */
 
-.filter-pill {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 11.5px;
+/* Button Aliases to match Timetable Manager pill buttons */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent-purple);
+  color: var(--text-on-accent);
+  border: none;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 10px rgba(167, 136, 250, 0.35);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-purple-hover);
+  color: var(--text-on-accent);
+  box-shadow: 0 4px 14px rgba(167, 136, 250, 0.5);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--btn-hover-bg);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.filter-pill:hover {
+.btn-secondary:hover:not(:disabled) {
+  background: var(--btn-active-bg);
   color: var(--text-primary);
-  background: var(--bg-hover);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.filter-pill {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--btn-hover-bg);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+
+.filter-pill:hover {
+  background: var(--btn-active-bg);
+  color: var(--text-primary);
 }
 
 .filter-pill.active {
-  background: var(--accent-indigo);
-  color: #fff;
+  background: var(--accent-purple-bg);
+  color: var(--accent-purple);
+  border-color: var(--accent-purple);
   font-weight: 600;
 }
 
+/* Schedule form & inline inputs matching app dark theme */
+.form-input,
+.form-textarea,
 .inline-input,
 .inline-select,
 .inline-date-input {
-  background: var(--bg-card-subtle);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
   border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
+.form-input:focus,
+.form-textarea:focus,
 .inline-input:focus,
 .inline-select:focus,
 .inline-date-input:focus {
-  border-color: var(--accent-indigo);
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 0 1px var(--accent-purple);
+}
+
+select.inline-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .badge-warning {
   background: rgba(245, 158, 11, 0.15);
-  color: var(--priority-normal-text);
+  color: var(--priority-med-text);
   border: 1px solid rgba(245, 158, 11, 0.3);
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   font-size: 10.5px;
+  font-weight: 500;
 }
 
 .review-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
   transition: all 0.15s ease;
 }
 
+.review-card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(167, 136, 250, 0.25);
+}
+
 .review-card.selected {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-color: var(--accent-purple);
+  box-shadow: 0 0 12px rgba(167, 136, 250, 0.18);
 }
 
 .review-card.unselected {
-  opacity: 0.55;
+  opacity: 0.5;
+}
+
+.ocr-banner {
+  background: var(--bg-card-inner);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+
+/* Category Indicators */
+.cat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
 }
 

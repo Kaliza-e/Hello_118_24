@@ -244,47 +244,100 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
   }
 
   return (
-    <div className="schedules-view" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12 }}>
-      {/* Top Action Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+    <div className="schedules-view" style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 14 }}>
+      {/* Top Header - Matches TimetableManager exactly */}
+      <div className="view-top-header">
+        <h2 className="view-page-title">Schedules</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             type="button"
-            className="btn-primary"
-            style={{ fontSize: 12, padding: '6px 12px' }}
+            className="btn-primary-pill"
             onClick={handleImportDocument}
           >
             <Upload size={13} /> Import Schedule
           </button>
           <button
             type="button"
-            className="btn-secondary"
-            style={{ fontSize: 12, padding: '6px 12px' }}
+            className="btn-secondary-pill"
+            style={{ width: 34, height: 32, padding: 0, justifyContent: 'center' }}
             onClick={() => {
               setEditingEvent(null)
               setIsEventModalOpen(true)
             }}
+            title="Add event manually"
           >
-            <Plus size={13} /> New Event
+            <Plus size={15} />
           </button>
           <button
             type="button"
-            className={`btn-secondary ${isDocsDrawerOpen ? 'active' : ''}`}
-            style={{ fontSize: 12, padding: '6px 10px' }}
+            className={`btn-secondary-pill ${isDocsDrawerOpen ? 'active' : ''}`}
             onClick={() => setIsDocsDrawerOpen(prev => !prev)}
             title="View imported source documents"
           >
             <FolderOpen size={13} /> Documents ({sourceDocs.length})
           </button>
         </div>
+      </div>
 
-        {/* Search Input */}
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        {/* Date & Status Pills Row matching Timetable day-pills */}
+        <div className="day-pills-row" style={{ flex: 1 }}>
+          {(['upcoming', 'this_week', 'this_month', 'all', 'past'] as const).map(df => (
+            <button
+              key={df}
+              type="button"
+              className={`day-pill-btn ${dateFilter === df ? 'active' : ''}`}
+              onClick={() => setDateFilter(df)}
+            >
+              {df === 'upcoming' ? 'Upcoming' : df === 'this_week' ? 'This Week' : df === 'this_month' ? 'This Month' : df === 'all' ? 'All' : 'Past'}
+            </button>
+          ))}
+
+          {(['active', 'completed', 'all'] as const).map(sf => (
+            <button
+              key={sf}
+              type="button"
+              className={`day-pill-btn ${statusFilter === sf ? 'active' : ''}`}
+              onClick={() => setStatusFilter(sf)}
+            >
+              {sf === 'active' ? 'Active' : sf === 'completed' ? 'Completed' : 'Both'}
+            </button>
+          ))}
+
+          {/* Category Dropdown */}
+          <select
+            className="select-field"
+            style={{ padding: '5px 10px', fontSize: 12, height: 32, width: 'auto' }}
+            value={selectedCategory}
+            onChange={e => setSelectedCategory(e.target.value)}
+          >
+            <option value="All">All Categories</option>
+            {SCHEDULE_CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
+          {selectedDocId && (
+            <span
+              className="day-pill-btn active"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11 }}
+            >
+              Doc: {sourceDocs.find(d => d.id === selectedDocId)?.file_name || selectedDocId}
+              <X size={11} style={{ cursor: 'pointer' }} onClick={() => setSelectedDocId(null)} />
+            </span>
+          )}
+        </div>
+
+        {/* Search Input matching app input fields */}
         <div style={{ position: 'relative', width: 220 }}>
-          <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
-            className="form-input"
-            style={{ paddingLeft: 26, fontSize: 12, height: 30 }}
+            className="input-field"
+            style={{ paddingLeft: 30, fontSize: 12, height: 32 }}
             placeholder="Search events, exams, rooms..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
@@ -292,72 +345,14 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
           {searchQuery && (
             <button
               type="button"
-              className="icon-btn-subtle"
-              style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)' }}
+              className="win-btn"
+              style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 22, height: 22 }}
               onClick={() => setSearchQuery('')}
             >
               <X size={12} />
             </button>
           )}
         </div>
-      </div>
-
-      {/* Filter Chips Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', paddingBottom: 4, flexWrap: 'wrap' }}>
-        {/* Date Filter */}
-        <div style={{ display: 'flex', background: 'var(--bg-card-subtle)', borderRadius: 6, padding: 2, border: '1px solid var(--border-subtle)' }}>
-          {(['upcoming', 'this_week', 'this_month', 'all', 'past'] as const).map(df => (
-            <button
-              key={df}
-              type="button"
-              className={`filter-pill ${dateFilter === df ? 'active' : ''}`}
-              style={{ padding: '3px 8px', fontSize: 11 }}
-              onClick={() => setDateFilter(df)}
-            >
-              {df === 'upcoming' ? 'Upcoming' : df === 'this_week' ? 'This Week' : df === 'this_month' ? 'This Month' : df === 'all' ? 'All' : 'Past'}
-            </button>
-          ))}
-        </div>
-
-        {/* Status Filter */}
-        <div style={{ display: 'flex', background: 'var(--bg-card-subtle)', borderRadius: 6, padding: 2, border: '1px solid var(--border-subtle)' }}>
-          {(['active', 'completed', 'all'] as const).map(sf => (
-            <button
-              key={sf}
-              type="button"
-              className={`filter-pill ${statusFilter === sf ? 'active' : ''}`}
-              style={{ padding: '3px 8px', fontSize: 11 }}
-              onClick={() => setStatusFilter(sf)}
-            >
-              {sf === 'active' ? 'Active' : sf === 'completed' ? 'Completed' : 'Both'}
-            </button>
-          ))}
-        </div>
-
-        {/* Category Dropdown */}
-        <select
-          className="inline-select"
-          style={{ fontSize: 11.5, padding: '4px 8px', borderRadius: 6 }}
-          value={selectedCategory}
-          onChange={e => setSelectedCategory(e.target.value)}
-        >
-          <option value="All">All Categories</option>
-          {SCHEDULE_CATEGORIES.map(cat => (
-            <option key={cat} value={cat}>
-              {cat}
-            </option>
-          ))}
-        </select>
-
-        {selectedDocId && (
-          <span
-            className="filter-pill active"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11 }}
-          >
-            Doc: {sourceDocs.find(d => d.id === selectedDocId)?.file_name || selectedDocId}
-            <X size={11} style={{ cursor: 'pointer' }} onClick={() => setSelectedDocId(null)} />
-          </span>
-        )}
       </div>
 
       {/* Main Layout: Timeline + Optional Docs Drawer */}
@@ -417,7 +412,7 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
                           transition: 'border-color 0.15s ease',
                           opacity: isDone ? 0.65 : 1
                         }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-indigo)')}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-purple)')}
                         onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
                       >
                         {/* Completion Checkbox */}
@@ -436,6 +431,7 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
                         {/* Event Content */}
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span className="cat-dot" style={{ background: catColor }} />
                             <span
                               style={{
                                 fontSize: 13,

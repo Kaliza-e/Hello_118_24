@@ -221,6 +221,7 @@ export interface HelloAPI {
   // Schedules & Ingestion
   pickAndIngestSchedule(): Promise<import('./types').ScheduleIngestionResult | null>
   parseScheduleText(text: string): Promise<import('./types').CandidateScheduleEvent[]>
+  runScheduleOcr(images: string[]): Promise<{ text: string; candidates: import('./types').CandidateScheduleEvent[] }>
   listScheduleEvents(filters?: import('./types').ScheduleEventFilters): Promise<import('./types').ScheduleEvent[]>
   getScheduleEvent(id: number): Promise<import('./types').ScheduleEvent | null>
   addScheduleEvent(payload: Partial<import('./types').ScheduleEvent>, reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>): Promise<import('./types').ScheduleEvent>

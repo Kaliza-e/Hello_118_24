@@ -13,7 +13,6 @@ import {
   RefreshCw,
   CopyCheck
 } from 'lucide-react'
-import { createWorker } from 'tesseract.js'
 import {
   ScheduleCategory,
   SCHEDULE_CATEGORIES,
@@ -56,28 +55,15 @@ export function ScheduleReviewModal({
   const [ocrProgress, setOcrProgress] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
 
-  // Run OCR on page images if scanned PDF or image
+  // Run local Node OCR on page images if scanned PDF or image
   async function handleRunOcr() {
     if (!ingestionResult?.pageImages || ingestionResult.pageImages.length === 0) return
     setOcrRunning(true)
-    setOcrProgress('Initializing OCR engine...')
+    setOcrProgress('Running local OCR extraction on scanned document...')
 
     try {
-      const worker = await createWorker('eng')
-      const totalPages = ingestionResult.pageImages.length
-      let accumulatedText = ''
-
-      for (let i = 0; i < totalPages; i++) {
-        setOcrProgress(`Reading page ${i + 1} of ${totalPages}...`)
-        const res = await worker.recognize(ingestionResult.pageImages[i])
-        accumulatedText += `\n--- Page ${i + 1} ---\n${res.data.text}\n`
-      }
-
-      await worker.terminate()
-      setOcrProgress('Analyzing schedule structure...')
-
-      // Parse OCR text via main process
-      const parsed = await window.hello11824.parseScheduleText(accumulatedText)
+      const res = await window.hello11824.runScheduleOcr(ingestionResult.pageImages)
+      const parsed = res.candidates || []
       setCandidates(parsed)
       setSelectedIndices(new Set(parsed.map((_, idx) => idx)))
       setOcrProgress(`OCR complete! Identified ${parsed.length} schedule events.`)
@@ -180,15 +166,21 @@ export function ScheduleReviewModal({
   const lowCount = candidates.filter(c => c.confidence === 'low').length
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-container schedule-review-modal" style={{ maxWidth: 860, maxHeight: '90vh' }}>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal-content"
+        style={{ maxWidth: 860, width: '92vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', gap: 0 }}
+        onClick={e => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Calendar size={18} color="var(--accent-cyan)" />
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--accent-purple-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Calendar size={18} color="var(--accent-purple)" />
+            </div>
             <div>
               <h2 className="modal-title">Review Extracted Schedule</h2>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span>{ingestionResult.fileName}</span>
                 <span>•</span>
                 <span>{(ingestionResult.fileSize / 1024).toFixed(1)} KB</span>
@@ -200,27 +192,26 @@ export function ScheduleReviewModal({
               </div>
             </div>
           </div>
-          <button type="button" className="icon-btn-subtle" onClick={onClose}>
-            <X size={16} />
+          <button type="button" className="win-btn" onClick={onClose} aria-label="Close modal">
+            <X size={15} />
           </button>
         </div>
 
         {/* OCR Trigger Banner if document is scanned */}
         {ingestionResult.needsOcr && ingestionResult.pageImages && (
-          <div className="ocr-banner" style={{ background: 'var(--bg-card-subtle)', padding: '10px 14px', borderRadius: 8, margin: '12px 16px 0', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div className="ocr-banner" style={{ margin: '12px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
               <Sparkles size={16} color="var(--accent-purple)" />
               <div>
-                <strong>Scanned Document Detected ({ingestionResult.pageImages.length} page images)</strong>
-                <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>
-                  {ocrProgress || 'Run OCR layout extraction to parse events from scanned pages.'}
+                <strong style={{ color: 'var(--text-primary)' }}>Scanned Document Detected ({ingestionResult.pageImages.length} page images)</strong>
+                <p style={{ margin: 0, fontSize: 11, color: 'var(--text-secondary)' }}>
+                  {ocrProgress || 'Run local OCR layout extraction to parse events from scanned pages.'}
                 </p>
               </div>
             </div>
             <button
               type="button"
-              className="btn-primary"
-              style={{ padding: '6px 12px', fontSize: 12, flexShrink: 0 }}
+              className="btn-primary-pill"
               onClick={handleRunOcr}
               disabled={ocrRunning}
             >
@@ -237,17 +228,17 @@ export function ScheduleReviewModal({
 
         {/* Summary Bar & Filters */}
         <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          <div className="day-pills-row">
             <button
               type="button"
-              className={`filter-pill ${activeFilter === 'all' ? 'active' : ''}`}
+              className={`day-pill-btn ${activeFilter === 'all' ? 'active' : ''}`}
               onClick={() => setActiveFilter('all')}
             >
               All ({candidates.length})
             </button>
             <button
               type="button"
-              className={`filter-pill ${activeFilter === 'high' ? 'active' : ''}`}
+              className={`day-pill-btn ${activeFilter === 'high' ? 'active' : ''}`}
               onClick={() => setActiveFilter('high')}
             >
               High ({highCount})
@@ -255,7 +246,7 @@ export function ScheduleReviewModal({
             {mediumCount > 0 && (
               <button
                 type="button"
-                className={`filter-pill ${activeFilter === 'medium' ? 'active' : ''}`}
+                className={`day-pill-btn ${activeFilter === 'medium' ? 'active' : ''}`}
                 onClick={() => setActiveFilter('medium')}
               >
                 Medium ({mediumCount})
@@ -264,7 +255,7 @@ export function ScheduleReviewModal({
             {lowCount > 0 && (
               <button
                 type="button"
-                className={`filter-pill ${activeFilter === 'low' ? 'active' : ''}`}
+                className={`day-pill-btn ${activeFilter === 'low' ? 'active' : ''}`}
                 onClick={() => setActiveFilter('low')}
               >
                 Uncertain ({lowCount})
@@ -275,8 +266,7 @@ export function ScheduleReviewModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               type="button"
-              className="btn-secondary"
-              style={{ fontSize: 11, padding: '4px 10px' }}
+              className="btn-secondary-pill"
               onClick={handleSelectAll}
             >
               <CopyCheck size={12} />
@@ -284,8 +274,7 @@ export function ScheduleReviewModal({
             </button>
             <button
               type="button"
-              className="btn-secondary"
-              style={{ fontSize: 11, padding: '4px 10px' }}
+              className="btn-secondary-pill"
               onClick={handleAddManualEvent}
             >
               <Plus size={12} /> Add Event
@@ -310,7 +299,7 @@ export function ScheduleReviewModal({
                   className={`review-card ${isSelected ? 'selected' : 'unselected'}`}
                   style={{
                     background: 'var(--bg-card)',
-                    border: `1px solid ${isSelected ? 'var(--accent-indigo)' : 'var(--border-subtle)'}`,
+                    border: `1px solid ${isSelected ? 'var(--accent-purple)' : 'var(--border-subtle)'}`,
                     borderRadius: 8,
                     padding: '10px 12px',
                     display: 'flex',
@@ -323,7 +312,7 @@ export function ScheduleReviewModal({
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => handleToggleSelect(originalIndex)}
-                      style={{ cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
+                      style={{ cursor: 'pointer', accentColor: 'var(--accent-purple)' }}
                     />
 
                     {/* Title Input */}
@@ -331,15 +320,13 @@ export function ScheduleReviewModal({
                       type="text"
                       value={item.title}
                       onChange={e => handleUpdateCandidate(originalIndex, { title: e.target.value })}
-                      className="inline-input"
+                      className="input-field"
                       style={{
                         flex: 1,
                         fontWeight: 600,
                         fontSize: 13,
                         background: 'transparent',
-                        border: '1px solid transparent',
-                        padding: '4px 6px',
-                        color: 'var(--text-primary)'
+                        padding: '4px 8px'
                       }}
                       placeholder="Event Title..."
                     />
@@ -454,18 +441,18 @@ export function ScheduleReviewModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid var(--border-subtle)' }}>
-          <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderTop: '1px solid var(--border-subtle)' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
             {selectedIndices.size} of {candidates.length} events selected to save
           </span>
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={isSaving}>
+            <button type="button" className="btn-secondary-pill" onClick={onClose} disabled={isSaving}>
               Cancel
             </button>
             <button
               type="button"
-              className="btn-primary"
+              className="btn-primary-pill"
               onClick={handleConfirm}
               disabled={isSaving || selectedIndices.size === 0}
             >

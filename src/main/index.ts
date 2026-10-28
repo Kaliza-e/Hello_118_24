@@ -39,7 +39,7 @@ import {
   setEventReminders
 } from './db'
 import { parseTimetableText } from './importers/parser'
-import { ingestScheduleDocument, parseScheduleText } from './importers/schedulePipeline'
+import { ingestScheduleDocument, parseScheduleText, performNodeOcr } from './importers/schedulePipeline'
 import { initNotifications } from './notifications'
 import {
   getFreeTimeSuggestion,
@@ -1141,6 +1141,14 @@ ipcMain.handle('schedules:parse-text', (event, text: string) => {
   assertAuthorizedSender(event)
   if (typeof text !== 'string') return []
   return parseScheduleText(text)
+})
+
+ipcMain.handle('schedules:run-ocr', async (event, images: string[]) => {
+  assertAuthorizedSender(event)
+  if (!Array.isArray(images) || images.length === 0) return { text: '', candidates: [] }
+  const text = await performNodeOcr(images)
+  const candidates = text.trim().length > 0 ? parseScheduleText(text) : []
+  return { text, candidates }
 })
 
 ipcMain.handle('schedules:list-events', (event, filters) => {
