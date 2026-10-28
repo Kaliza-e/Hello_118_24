@@ -123,7 +123,21 @@ const api = {
   // Backup & Storage
   exportData: () => ipcRenderer.invoke('data:export'),
   importData: () => ipcRenderer.invoke('data:import'),
-  clearData: (options: { tasks?: boolean; classes?: boolean; plans?: boolean }) => ipcRenderer.invoke('data:clear', options),
+  clearData: (options: { tasks?: boolean; classes?: boolean; plans?: boolean; schedules?: boolean }) => ipcRenderer.invoke('data:clear', options),
+
+  // Schedules & Ingestion
+  pickAndIngestSchedule: () => ipcRenderer.invoke('schedules:pick-and-ingest'),
+  parseScheduleText: (text: string) => ipcRenderer.invoke('schedules:parse-text', text),
+  listScheduleEvents: (filters?: any) => ipcRenderer.invoke('schedules:list-events', filters),
+  getScheduleEvent: (id: number) => ipcRenderer.invoke('schedules:get-event', id),
+  addScheduleEvent: (payload: any, reminders?: any[]) => ipcRenderer.invoke('schedules:add-event', payload, reminders),
+  updateScheduleEvent: (id: number, updates: any, reminders?: any[]) => ipcRenderer.invoke('schedules:update-event', id, updates, reminders),
+  deleteScheduleEvent: (id: number) => ipcRenderer.invoke('schedules:delete-event', id),
+  toggleScheduleEventCompleted: (id: number) => ipcRenderer.invoke('schedules:toggle-completed', id),
+  batchSaveScheduleEvents: (payload: any) => ipcRenderer.invoke('schedules:batch-save', payload),
+  listSourceDocuments: () => ipcRenderer.invoke('schedules:list-source-docs'),
+  deleteSourceDocument: (id: number, deleteEvents?: boolean) => ipcRenderer.invoke('schedules:delete-source-doc', id, deleteEvents),
+  setEventReminders: (eventId: number, reminders: any[]) => ipcRenderer.invoke('schedules:set-reminders', eventId, reminders),
 
   // Application Info
   getAppVersion: () => ipcRenderer.invoke('app:get-version')

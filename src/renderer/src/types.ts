@@ -68,7 +68,119 @@ export interface ImportResult {
   candidates: CandidateSubject[]
 }
 
-export type ActiveTab = 'today' | 'timetable' | 'tasks' | 'plan' | 'weekly' | 'settings'
+export type ScheduleCategory =
+  | 'Academic Calendar'
+  | 'Exams'
+  | 'Assignments'
+  | 'Applications'
+  | 'Events'
+  | 'Workshops'
+  | 'Meetings'
+  | 'Personal'
+  | 'Other'
+
+export const SCHEDULE_CATEGORIES: ScheduleCategory[] = [
+  'Academic Calendar',
+  'Exams',
+  'Assignments',
+  'Applications',
+  'Events',
+  'Workshops',
+  'Meetings',
+  'Personal',
+  'Other'
+]
+
+export interface EventReminder {
+  id?: number
+  event_id?: number
+  trigger_offset_minutes: number
+  all_day_delivery_time?: string
+  last_triggered_at?: string | null
+  is_delivered?: number
+  created_at?: string
+}
+
+export interface ScheduleEvent {
+  id: number
+  source_doc_id: number | null
+  title: string
+  description: string | null
+  category: ScheduleCategory
+  tags: string | null
+  start_date: string // YYYY-MM-DD
+  start_time: string | null // HH:mm
+  end_date: string | null // YYYY-MM-DD
+  end_time: string | null // HH:mm
+  is_all_day: number // 0 or 1
+  location: string | null
+  recurrence_rule: string | null
+  source_excerpt: string | null
+  source_page: number | null
+  confidence: 'high' | 'medium' | 'low'
+  review_status: 'confirmed' | 'pending_review' | 'excluded'
+  is_completed: number // 0 or 1
+  user_edited: number // 0 or 1
+  created_at: string
+  updated_at: string
+  reminders?: EventReminder[]
+  source_document_name?: string
+}
+
+export interface CandidateScheduleEvent {
+  id?: string
+  title: string
+  description?: string
+  category: ScheduleCategory
+  startDate: string
+  startTime?: string
+  endDate?: string
+  endTime?: string
+  isAllDay: boolean
+  location?: string
+  recurrenceRule?: string
+  sourceExcerpt?: string
+  sourcePage?: number
+  confidence: 'high' | 'medium' | 'low'
+  warning?: string
+  reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>
+}
+
+export interface SourceDocument {
+  id: number
+  file_hash: string
+  file_name: string
+  file_type: string
+  file_size: number
+  event_count: number
+  raw_text: string | null
+  imported_at: string
+}
+
+export interface ScheduleIngestionResult {
+  fileName: string
+  fileType: string
+  fileSize: number
+  fileHash: string
+  rawText: string
+  needsOcr: boolean
+  pageImages?: string[]
+  candidates: CandidateScheduleEvent[]
+  isDuplicate?: boolean
+  existingDocId?: number
+}
+
+export interface ScheduleEventFilters {
+  category?: string
+  startDate?: string
+  endDate?: string
+  sourceDocId?: number
+  isCompleted?: boolean
+  reviewStatus?: string
+  search?: string
+}
+
+export type ActiveTab = 'today' | 'timetable' | 'schedules' | 'tasks' | 'plan' | 'weekly' | 'settings'
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 export const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

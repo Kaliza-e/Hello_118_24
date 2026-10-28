@@ -1,5 +1,5 @@
 import { Notification, NativeImage } from 'electron'
-import { listClasses, listTasks, getSetting } from './db'
+import { listClasses, listTasks, getSetting, getPendingRemindersToTrigger, markReminderDelivered } from './db'
 import { getFreeTimeSuggestion } from './freeTimeEngine'
 
 let reminderInterval: NodeJS.Timeout | null = null
@@ -140,7 +140,77 @@ export function checkReminders(): void {
         notif.show()
       }
     }
+
+    // 4. Check Persistent Schedule Event Reminders
+    checkScheduleEventReminders(now)
   } catch (err) {
     console.error('Error checking reminders:', err)
+  }
+}
+
+export function checkScheduleEventReminders(now: Date = new Date()): void {
+  try {
+    const pending = getPendingRemindersToTrigger()
+    if (!pending || pending.length === 0) return
+
+    const nowMs = now.getTime()
+    const appIcon = getIconResolver ? getIconResolver() : undefined
+
+    for (const reminder of pending) {
+      // Calculate target trigger time
+      const dateParts = reminder.start_date.split('-').map(Number)
+      if (dateParts.length !== 3) continue
+
+      let eventHour = 8
+      let eventMinute = 0
+
+      if (reminder.is_all_day) {
+        const delivery = reminder.all_day_delivery_time || '08:00'
+        const [dH, dM] = delivery.split(':').map(Number)
+        eventHour = isNaN(dH) ? 8 : dH
+        eventMinute = isNaN(dM) ? 0 : dM
+      } else if (reminder.start_time) {
+        const [sH, sM] = reminder.start_time.split(':').map(Number)
+        eventHour = isNaN(sH) ? 8 : sH
+        eventMinute = isNaN(sM) ? 0 : sM
+      }
+
+      const eventTime = new Date(dateParts[0], dateParts[1] - 1, dateParts[2], eventHour, eventMinute, 0, 0)
+      const targetTriggerMs = eventTime.getTime() - (reminder.trigger_offset_minutes * 60 * 1000)
+
+      // If trigger time has arrived
+      if (nowMs >= targetTriggerMs) {
+        // If the event is in the past by more than 24h, mark delivered without buzzing
+        const isStale = (nowMs - targetTriggerMs) > (24 * 60 * 60 * 1000)
+        if (!isStale) {
+          const offsetText = reminder.trigger_offset_minutes > 0
+            ? reminder.trigger_offset_minutes >= 1440
+              ? ` (in ${Math.round(reminder.trigger_offset_minutes / 1440)} day${reminder.trigger_offset_minutes >= 2880 ? 's' : ''})`
+              : reminder.trigger_offset_minutes >= 60
+                ? ` (in ${Math.round(reminder.trigger_offset_minutes / 60)} hr)`
+                : ` (in ${reminder.trigger_offset_minutes} mins)`
+            : ' (Now)'
+
+          const timeDisplay = reminder.is_all_day
+            ? `Today (${reminder.start_date})`
+            : `${reminder.start_time || ''}`
+
+          const title = `Hello 118:24 — ${reminder.category}: ${reminder.event_title}`
+          const body = `${timeDisplay}${offsetText}${reminder.location ? ` • ${reminder.location}` : ''}${reminder.description ? `\n${reminder.description}` : ''}`
+
+          const notif = new Notification({
+            title,
+            body: body.trim(),
+            icon: appIcon,
+            silent: false
+          })
+          notif.show()
+        }
+
+        markReminderDelivered(reminder.id)
+      }
+    }
+  } catch (err) {
+    console.error('Error checking schedule event reminders:', err)
   }
 }

@@ -24,9 +24,22 @@ import {
   saveDailyPlan,
   exportAllData,
   importAllData,
-  clearAllData
+  clearAllData,
+  listScheduleEvents,
+  getScheduleEvent,
+  addScheduleEvent,
+  updateScheduleEvent,
+  deleteScheduleEvent,
+  toggleScheduleEventCompleted,
+  batchCreateScheduleEvents,
+  listSourceDocuments,
+  deleteSourceDocument,
+  getSourceDocumentByHash,
+  addSourceDocument,
+  setEventReminders
 } from './db'
 import { parseTimetableText } from './importers/parser'
+import { ingestScheduleDocument, parseScheduleText } from './importers/schedulePipeline'
 import { initNotifications } from './notifications'
 import {
   getFreeTimeSuggestion,
@@ -752,7 +765,7 @@ ipcMain.handle('app:get-version', (event) => {
 const MAX_DOC_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB max for PDF / Word documents
 const MAX_IMG_SIZE_BYTES = 15 * 1024 * 1024 // 15 MB max for images
 const MAX_BACKUP_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB max for JSON backups
-const ALLOWED_IMPORT_EXTENSIONS = new Set(['pdf', 'docx', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'])
+const ALLOWED_IMPORT_EXTENSIONS = new Set(['pdf', 'docx', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'])
 
 // Window Management
 ipcMain.handle('window:minimize', (event) => {
@@ -1067,6 +1080,164 @@ ipcMain.handle('files:parse-text', (event, text: string) => {
   assertAuthorizedSender(event)
   if (typeof text !== 'string') return []
   return parseTimetableText(text)
+})
+
+// ----------------- Schedules Ingestion & Management -----------------
+
+ipcMain.handle('schedules:pick-and-ingest', async (event) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return null
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Schedule, Timetable, or Academic Calendar Document',
+    properties: ['openFile'],
+    filters: [
+      {
+        name: 'All Supported Formats (*.pdf, *.docx, *.xlsx, *.csv, *.png, *.jpg)',
+        extensions: ['pdf', 'docx', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif']
+      },
+      { name: 'PDF Documents (*.pdf)', extensions: ['pdf'] },
+      { name: 'Word Documents (*.docx)', extensions: ['docx'] },
+      { name: 'Spreadsheets (*.xlsx, *.csv)', extensions: ['xlsx', 'xls', 'csv'] },
+      { name: 'Images & Scans (*.png, *.jpg, *.jpeg)', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'] }
+    ]
+  })
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null
+  }
+
+  const filePath = result.filePaths[0]
+  if (!existsSync(filePath)) {
+    throw new Error('Selected file does not exist on disk.')
+  }
+
+  const ext = (filePath.split('.').pop() || '').toLowerCase()
+  if (!ALLOWED_IMPORT_EXTENSIONS.has(ext)) {
+    throw new Error(`Unsupported file type (.${ext}).`)
+  }
+
+  const stats = statSync(filePath)
+  if (stats.size > MAX_DOC_SIZE_BYTES) {
+    throw new Error('File exceeds the 25 MB size limit.')
+  }
+
+  const fileName = filePath.split(/[\\/]/).pop() || 'document'
+  const buffer = readFileSync(filePath)
+
+  const ingestion = await ingestScheduleDocument(buffer, fileName, ext)
+
+  // Check for duplicate source document by SHA-256
+  const existing = getSourceDocumentByHash(ingestion.fileHash)
+  if (existing) {
+    ingestion.isDuplicate = true
+    ingestion.existingDocId = existing.id
+  }
+
+  return ingestion
+})
+
+ipcMain.handle('schedules:parse-text', (event, text: string) => {
+  assertAuthorizedSender(event)
+  if (typeof text !== 'string') return []
+  return parseScheduleText(text)
+})
+
+ipcMain.handle('schedules:list-events', (event, filters) => {
+  assertAuthorizedSender(event)
+  return listScheduleEvents(filters || {})
+})
+
+ipcMain.handle('schedules:get-event', (event, id: number) => {
+  assertAuthorizedSender(event)
+  return getScheduleEvent(id)
+})
+
+ipcMain.handle('schedules:add-event', (event, payload, reminders) => {
+  assertAuthorizedSender(event)
+  return addScheduleEvent(payload, reminders)
+})
+
+ipcMain.handle('schedules:update-event', (event, id: number, updates, reminders) => {
+  assertAuthorizedSender(event)
+  return updateScheduleEvent(id, updates, reminders)
+})
+
+ipcMain.handle('schedules:delete-event', (event, id: number) => {
+  assertAuthorizedSender(event)
+  return deleteScheduleEvent(id)
+})
+
+ipcMain.handle('schedules:toggle-completed', (event, id: number) => {
+  assertAuthorizedSender(event)
+  return toggleScheduleEventCompleted(id)
+})
+
+ipcMain.handle('schedules:batch-save', (event, payload: {
+  documentMeta?: {
+    fileName: string
+    fileHash: string
+    fileType: string
+    fileSize: number
+    rawText?: string
+  }
+  events: Array<any>
+}) => {
+  assertAuthorizedSender(event)
+  let docId: number | undefined = undefined
+
+  if (payload.documentMeta) {
+    const doc = addSourceDocument({
+      file_hash: payload.documentMeta.fileHash,
+      file_name: payload.documentMeta.fileName,
+      file_type: payload.documentMeta.fileType,
+      file_size: payload.documentMeta.fileSize,
+      raw_text: payload.documentMeta.rawText || null,
+      event_count: payload.events.length
+    })
+    docId = doc.id
+  }
+
+  const eventsToInsert = payload.events.map(ev => ({
+    source_doc_id: docId ?? ev.source_doc_id ?? null,
+    title: ev.title,
+    description: ev.description || null,
+    category: ev.category || 'Other',
+    tags: ev.tags || null,
+    start_date: ev.startDate || ev.start_date,
+    start_time: ev.startTime || ev.start_time || null,
+    end_date: ev.endDate || ev.end_date || null,
+    end_time: ev.endTime || ev.end_time || null,
+    is_all_day: ev.isAllDay !== undefined ? (ev.isAllDay ? 1 : 0) : (ev.is_all_day ? 1 : 0),
+    location: ev.location || null,
+    recurrence_rule: ev.recurrenceRule || ev.recurrence_rule || null,
+    source_excerpt: ev.sourceExcerpt || ev.source_excerpt || null,
+    source_page: ev.sourcePage || ev.source_page || null,
+    confidence: ev.confidence || 'high',
+    review_status: ev.reviewStatus || ev.review_status || 'confirmed',
+    is_completed: ev.isCompleted ? 1 : 0,
+    user_edited: ev.userEdited ? 1 : 0,
+    reminders: ev.reminders
+  }))
+
+  const count = batchCreateScheduleEvents(eventsToInsert)
+  return { savedCount: count, docId }
+})
+
+ipcMain.handle('schedules:list-source-docs', (event) => {
+  assertAuthorizedSender(event)
+  return listSourceDocuments()
+})
+
+ipcMain.handle('schedules:delete-source-doc', (event, id: number, deleteEvents?: boolean) => {
+  assertAuthorizedSender(event)
+  return deleteSourceDocument(id, deleteEvents !== false)
+})
+
+ipcMain.handle('schedules:set-reminders', (event, eventId: number, reminders: any[]) => {
+  assertAuthorizedSender(event)
+  setEventReminders(eventId, reminders)
+  return true
 })
 
 // Data Backup & Export / Import

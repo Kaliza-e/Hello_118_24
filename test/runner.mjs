@@ -51,7 +51,10 @@ run({
     resolve('test/packaging.test.mjs'),
     resolve('test/freeTime.test.mjs'),
     resolve('test/crossPlatform.test.mjs'),
-    resolve('test/security.test.mjs')
+    resolve('test/security.test.mjs'),
+    resolve('test/scheduleParser.test.mjs'),
+    resolve('test/scheduleDb.test.mjs'),
+    resolve('test/scheduleReminders.test.mjs')
   ]
 })
   .on('test:fail', () => {

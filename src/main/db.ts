@@ -47,6 +47,64 @@ export interface ImportHistoryRecord {
   imported_at: string
 }
 
+export type ScheduleCategory =
+  | 'Academic Calendar'
+  | 'Exams'
+  | 'Assignments'
+  | 'Applications'
+  | 'Events'
+  | 'Workshops'
+  | 'Meetings'
+  | 'Personal'
+  | 'Other'
+
+export interface SourceDocumentRecord {
+  id: number
+  file_hash: string
+  file_name: string
+  file_type: string
+  file_size: number
+  event_count: number
+  raw_text: string | null
+  imported_at: string
+}
+
+export interface ScheduleEventRecord {
+  id: number
+  source_doc_id: number | null
+  title: string
+  description: string | null
+  category: ScheduleCategory
+  tags: string | null
+  start_date: string // YYYY-MM-DD
+  start_time: string | null // HH:mm
+  end_date: string | null // YYYY-MM-DD
+  end_time: string | null // HH:mm
+  is_all_day: number // 0 or 1
+  location: string | null
+  recurrence_rule: string | null
+  source_excerpt: string | null
+  source_page: number | null
+  confidence: 'high' | 'medium' | 'low'
+  review_status: 'confirmed' | 'pending_review' | 'excluded'
+  is_completed: number // 0 or 1
+  user_edited: number // 0 or 1
+  created_at: string
+  updated_at: string
+  reminders?: EventReminderRecord[]
+  source_document_name?: string
+}
+
+export interface EventReminderRecord {
+  id: number
+  event_id: number
+  trigger_offset_minutes: number
+  all_day_delivery_time: string
+  last_triggered_at: string | null
+  is_delivered: number
+  created_at: string
+}
+
 let db: Database.Database
 
 // Creates an automated snapshot backup of the current database into userData/backups/
@@ -228,6 +286,66 @@ export function initDatabase(): Database.Database {
       db.exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (2);`)
     } catch (err) {
       console.error('Error running migration v2:', err)
+    }
+  }
+
+  if (currentVersion < 3) {
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS source_documents (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_hash TEXT UNIQUE NOT NULL,
+          file_name TEXT NOT NULL,
+          file_type TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          event_count INTEGER NOT NULL DEFAULT 0,
+          raw_text TEXT,
+          imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS schedule_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          source_doc_id INTEGER REFERENCES source_documents(id) ON DELETE SET NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          category TEXT NOT NULL DEFAULT 'Other',
+          tags TEXT,
+          start_date TEXT NOT NULL,
+          start_time TEXT,
+          end_date TEXT,
+          end_time TEXT,
+          is_all_day INTEGER NOT NULL DEFAULT 1,
+          location TEXT,
+          recurrence_rule TEXT,
+          source_excerpt TEXT,
+          source_page INTEGER,
+          confidence TEXT NOT NULL DEFAULT 'high',
+          review_status TEXT NOT NULL DEFAULT 'confirmed',
+          is_completed INTEGER NOT NULL DEFAULT 0,
+          user_edited INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS event_reminders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_id INTEGER NOT NULL REFERENCES schedule_events(id) ON DELETE CASCADE,
+          trigger_offset_minutes INTEGER NOT NULL DEFAULT 10,
+          all_day_delivery_time TEXT NOT NULL DEFAULT '08:00',
+          last_triggered_at TEXT,
+          is_delivered INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_schedule_events_start ON schedule_events(start_date, start_time);
+        CREATE INDEX IF NOT EXISTS idx_schedule_events_category ON schedule_events(category);
+        CREATE INDEX IF NOT EXISTS idx_schedule_events_review ON schedule_events(review_status);
+        CREATE INDEX IF NOT EXISTS idx_event_reminders_event ON event_reminders(event_id);
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (3);
+      `)
+    } catch (err) {
+      console.error('Error running migration v3:', err)
     }
   }
 
@@ -705,9 +823,429 @@ export function importAllData(data: {
   return true
 }
 
-export function clearAllData(options: { tasks?: boolean; classes?: boolean; plans?: boolean }): void {
+export function clearAllData(options: { tasks?: boolean; classes?: boolean; plans?: boolean; schedules?: boolean }): void {
   const d = getDatabase()
   if (options.tasks) d.prepare('DELETE FROM tasks').run()
   if (options.classes) d.prepare('DELETE FROM classes').run()
   if (options.plans) d.prepare('DELETE FROM daily_plans').run()
+  if (options.schedules) {
+    d.prepare('DELETE FROM event_reminders').run()
+    d.prepare('DELETE FROM schedule_events').run()
+    d.prepare('DELETE FROM source_documents').run()
+  }
+}
+
+// ----------------- Schedule Events & Source Documents -----------------
+
+export function getSourceDocumentByHash(fileHash: string): SourceDocumentRecord | null {
+  const row = getDatabase()
+    .prepare('SELECT * FROM source_documents WHERE file_hash = ?')
+    .get(fileHash) as SourceDocumentRecord | undefined
+  return row ?? null
+}
+
+export function getSourceDocumentById(id: number): SourceDocumentRecord | null {
+  const row = getDatabase()
+    .prepare('SELECT * FROM source_documents WHERE id = ?')
+    .get(id) as SourceDocumentRecord | undefined
+  return row ?? null
+}
+
+export function listSourceDocuments(): SourceDocumentRecord[] {
+  return getDatabase()
+    .prepare('SELECT * FROM source_documents ORDER BY imported_at DESC')
+    .all() as SourceDocumentRecord[]
+}
+
+export function addSourceDocument(doc: {
+  file_hash: string
+  file_name: string
+  file_type: string
+  file_size: number
+  event_count?: number
+  raw_text?: string | null
+}): SourceDocumentRecord {
+  const d = getDatabase()
+  const insert = d.prepare(`
+    INSERT INTO source_documents (file_hash, file_name, file_type, file_size, event_count, raw_text)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(file_hash) DO UPDATE SET
+      file_name = excluded.file_name,
+      file_size = excluded.file_size,
+      raw_text = excluded.raw_text,
+      imported_at = CURRENT_TIMESTAMP
+  `)
+  const result = insert.run(
+    doc.file_hash,
+    doc.file_name,
+    doc.file_type,
+    doc.file_size,
+    doc.event_count || 0,
+    doc.raw_text || null
+  )
+
+  const insertedId = Number(result.lastInsertRowid) || getSourceDocumentByHash(doc.file_hash)?.id || 0
+  return getSourceDocumentById(insertedId)!
+}
+
+export function updateSourceDocumentEventCount(docId: number): void {
+  const d = getDatabase()
+  const countRow = d
+    .prepare('SELECT COUNT(*) as cnt FROM schedule_events WHERE source_doc_id = ?')
+    .get(docId) as { cnt: number } | undefined
+  const cnt = countRow?.cnt || 0
+  d.prepare('UPDATE source_documents SET event_count = ? WHERE id = ?').run(cnt, docId)
+}
+
+export function deleteSourceDocument(id: number, deleteEvents: boolean = true): boolean {
+  const d = getDatabase()
+  const tx = d.transaction(() => {
+    if (deleteEvents) {
+      d.prepare('DELETE FROM schedule_events WHERE source_doc_id = ?').run(id)
+    } else {
+      d.prepare('UPDATE schedule_events SET source_doc_id = NULL WHERE source_doc_id = ?').run(id)
+    }
+    d.prepare('DELETE FROM source_documents WHERE id = ?').run(id)
+  })
+  tx()
+  return true
+}
+
+export interface ListScheduleEventsFilters {
+  category?: string
+  startDate?: string
+  endDate?: string
+  sourceDocId?: number
+  isCompleted?: boolean
+  reviewStatus?: string
+  search?: string
+}
+
+export function listScheduleEvents(filters: ListScheduleEventsFilters = {}): ScheduleEventRecord[] {
+  const d = getDatabase()
+  const conditions: string[] = []
+  const params: unknown[] = []
+
+  if (filters.category && filters.category !== 'All') {
+    conditions.push('e.category = ?')
+    params.push(filters.category)
+  }
+
+  if (filters.startDate) {
+    conditions.push('e.start_date >= ?')
+    params.push(filters.startDate)
+  }
+
+  if (filters.endDate) {
+    conditions.push('e.start_date <= ?')
+    params.push(filters.endDate)
+  }
+
+  if (typeof filters.sourceDocId === 'number') {
+    conditions.push('e.source_doc_id = ?')
+    params.push(filters.sourceDocId)
+  }
+
+  if (typeof filters.isCompleted === 'boolean') {
+    conditions.push('e.is_completed = ?')
+    params.push(filters.isCompleted ? 1 : 0)
+  }
+
+  if (filters.reviewStatus && filters.reviewStatus !== 'All') {
+    conditions.push('e.review_status = ?')
+    params.push(filters.reviewStatus)
+  }
+
+  if (filters.search && filters.search.trim().length > 0) {
+    conditions.push('(e.title LIKE ? OR e.description LIKE ? OR e.location LIKE ?)')
+    const pattern = `%${filters.search.trim()}%`
+    params.push(pattern, pattern, pattern)
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  const query = `
+    SELECT e.*, s.file_name as source_document_name
+    FROM schedule_events e
+    LEFT JOIN source_documents s ON e.source_doc_id = s.id
+    ${whereClause}
+    ORDER BY e.start_date ASC, CASE WHEN e.start_time IS NULL THEN '00:00' ELSE e.start_time END ASC, e.id ASC
+  `
+
+  const events = d.prepare(query).all(...params) as ScheduleEventRecord[]
+  if (events.length === 0) return []
+
+  // Load reminders
+  const reminderStmt = d.prepare('SELECT * FROM event_reminders WHERE event_id = ? ORDER BY trigger_offset_minutes ASC')
+  for (const ev of events) {
+    ev.reminders = reminderStmt.all(ev.id) as EventReminderRecord[]
+  }
+
+  return events
+}
+
+export function getScheduleEvent(id: number): ScheduleEventRecord | null {
+  const d = getDatabase()
+  const event = d.prepare(`
+    SELECT e.*, s.file_name as source_document_name
+    FROM schedule_events e
+    LEFT JOIN source_documents s ON e.source_doc_id = s.id
+    WHERE e.id = ?
+  `).get(id) as ScheduleEventRecord | undefined
+
+  if (!event) return null
+  event.reminders = d
+    .prepare('SELECT * FROM event_reminders WHERE event_id = ? ORDER BY trigger_offset_minutes ASC')
+    .all(id) as EventReminderRecord[]
+  return event
+}
+
+export function addScheduleEvent(
+  event: {
+    source_doc_id?: number | null
+    title: string
+    description?: string | null
+    category?: ScheduleCategory
+    tags?: string | null
+    start_date: string
+    start_time?: string | null
+    end_date?: string | null
+    end_time?: string | null
+    is_all_day?: number
+    location?: string | null
+    recurrence_rule?: string | null
+    source_excerpt?: string | null
+    source_page?: number | null
+    confidence?: 'high' | 'medium' | 'low'
+    review_status?: 'confirmed' | 'pending_review' | 'excluded'
+    is_completed?: number
+    user_edited?: number
+  },
+  reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>
+): ScheduleEventRecord {
+  const d = getDatabase()
+  const insert = d.prepare(`
+    INSERT INTO schedule_events (
+      source_doc_id, title, description, category, tags,
+      start_date, start_time, end_date, end_time, is_all_day,
+      location, recurrence_rule, source_excerpt, source_page,
+      confidence, review_status, is_completed, user_edited
+    ) VALUES (
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?, ?
+    )
+  `)
+
+  const isAllDay = event.is_all_day !== undefined ? event.is_all_day : (event.start_time ? 0 : 1)
+  const result = insert.run(
+    event.source_doc_id ?? null,
+    event.title.trim().slice(0, 250),
+    event.description ? event.description.slice(0, 3000) : null,
+    event.category || 'Other',
+    event.tags || null,
+    event.start_date,
+    event.start_time || null,
+    event.end_date || null,
+    event.end_time || null,
+    isAllDay,
+    event.location || null,
+    event.recurrence_rule || null,
+    event.source_excerpt || null,
+    event.source_page ?? null,
+    event.confidence || 'high',
+    event.review_status || 'confirmed',
+    event.is_completed ? 1 : 0,
+    event.user_edited ? 1 : 0
+  )
+
+  const eventId = Number(result.lastInsertRowid)
+
+  if (Array.isArray(reminders) && reminders.length > 0) {
+    setEventReminders(eventId, reminders)
+  }
+
+  if (event.source_doc_id) {
+    updateSourceDocumentEventCount(event.source_doc_id)
+  }
+
+  return getScheduleEvent(eventId)!
+}
+
+export function updateScheduleEvent(
+  id: number,
+  updates: Partial<Omit<ScheduleEventRecord, 'id' | 'created_at' | 'updated_at'>>,
+  reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>
+): ScheduleEventRecord | null {
+  const d = getDatabase()
+  const existing = getScheduleEvent(id)
+  if (!existing) return null
+
+  const fields: string[] = []
+  const values: unknown[] = []
+
+  const allowedFields: Array<keyof typeof updates> = [
+    'source_doc_id', 'title', 'description', 'category', 'tags',
+    'start_date', 'start_time', 'end_date', 'end_time', 'is_all_day',
+    'location', 'recurrence_rule', 'source_excerpt', 'source_page',
+    'confidence', 'review_status', 'is_completed', 'user_edited'
+  ]
+
+  for (const key of allowedFields) {
+    if (key in updates) {
+      fields.push(`${key} = ?`)
+      values.push(updates[key] ?? null)
+    }
+  }
+
+  fields.push('updated_at = CURRENT_TIMESTAMP')
+  values.push(id)
+
+  const query = `UPDATE schedule_events SET ${fields.join(', ')} WHERE id = ?`
+  d.prepare(query).run(...values)
+
+  if (Array.isArray(reminders)) {
+    setEventReminders(id, reminders)
+  }
+
+  return getScheduleEvent(id)
+}
+
+export function deleteScheduleEvent(id: number): boolean {
+  const d = getDatabase()
+  const ev = getScheduleEvent(id)
+  d.prepare('DELETE FROM schedule_events WHERE id = ?').run(id)
+  if (ev?.source_doc_id) {
+    updateSourceDocumentEventCount(ev.source_doc_id)
+  }
+  return true
+}
+
+export function toggleScheduleEventCompleted(id: number): boolean {
+  const d = getDatabase()
+  const ev = getScheduleEvent(id)
+  if (!ev) return false
+  const next = ev.is_completed ? 0 : 1
+  d.prepare('UPDATE schedule_events SET is_completed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(next, id)
+  return true
+}
+
+export function batchCreateScheduleEvents(
+  events: Array<{
+    source_doc_id?: number | null
+    title: string
+    description?: string | null
+    category?: ScheduleCategory
+    tags?: string | null
+    start_date: string
+    start_time?: string | null
+    end_date?: string | null
+    end_time?: string | null
+    is_all_day?: number
+    location?: string | null
+    recurrence_rule?: string | null
+    source_excerpt?: string | null
+    source_page?: number | null
+    confidence?: 'high' | 'medium' | 'low'
+    review_status?: 'confirmed' | 'pending_review' | 'excluded'
+    is_completed?: number
+    user_edited?: number
+    reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>
+  }>
+): number {
+  if (!events || events.length === 0) return 0
+  const d = getDatabase()
+  let inserted = 0
+  const docIdsToUpdate = new Set<number>()
+
+  const tx = d.transaction(() => {
+    for (const ev of events) {
+      if (!ev.title || !ev.start_date) continue
+      addScheduleEvent(ev, ev.reminders)
+      if (ev.source_doc_id) {
+        docIdsToUpdate.add(ev.source_doc_id)
+      }
+      inserted++
+    }
+
+    for (const docId of docIdsToUpdate) {
+      updateSourceDocumentEventCount(docId)
+    }
+  })
+
+  tx()
+  return inserted
+}
+
+// ----------------- Event Reminders -----------------
+
+export function getEventReminders(eventId: number): EventReminderRecord[] {
+  return getDatabase()
+    .prepare('SELECT * FROM event_reminders WHERE event_id = ? ORDER BY trigger_offset_minutes ASC')
+    .all(eventId) as EventReminderRecord[]
+}
+
+export function setEventReminders(
+  eventId: number,
+  reminders: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>
+): void {
+  const d = getDatabase()
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM event_reminders WHERE event_id = ?').run(eventId)
+    const insert = d.prepare(`
+      INSERT INTO event_reminders (event_id, trigger_offset_minutes, all_day_delivery_time)
+      VALUES (?, ?, ?)
+    `)
+    for (const r of reminders) {
+      const offset = Number.isInteger(r.trigger_offset_minutes) ? r.trigger_offset_minutes : 10
+      const delivery = r.all_day_delivery_time || '08:00'
+      insert.run(eventId, offset, delivery)
+    }
+  })
+  tx()
+}
+
+export interface PendingReminderToTrigger extends EventReminderRecord {
+  event_title: string
+  description: string | null
+  category: ScheduleCategory
+  start_date: string
+  start_time: string | null
+  is_all_day: number
+  location: string | null
+}
+
+export function getPendingRemindersToTrigger(): PendingReminderToTrigger[] {
+  const d = getDatabase()
+  const query = `
+    SELECT 
+      r.*,
+      e.title as event_title,
+      e.description,
+      e.category,
+      e.start_date,
+      e.start_time,
+      e.is_all_day,
+      e.location
+    FROM event_reminders r
+    JOIN schedule_events e ON r.event_id = e.id
+    WHERE r.is_delivered = 0
+      AND e.is_completed = 0
+      AND e.review_status != 'excluded'
+  `
+  return d.prepare(query).all() as PendingReminderToTrigger[]
+}
+
+export function markReminderDelivered(reminderId: number): void {
+  const d = getDatabase()
+  d.prepare(`
+    UPDATE event_reminders 
+    SET is_delivered = 1, last_triggered_at = CURRENT_TIMESTAMP 
+    WHERE id = ?
+  `).run(reminderId)
+}
+
+export function resetDeliveredRemindersForEvent(eventId: number): void {
+  const d = getDatabase()
+  d.prepare('UPDATE event_reminders SET is_delivered = 0, last_triggered_at = NULL WHERE event_id = ?').run(eventId)
 }

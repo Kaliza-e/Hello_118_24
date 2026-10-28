@@ -14,6 +14,7 @@ import { Task, ClassItem, ActiveTab, toDateKey } from './types'
 import { TitleBar } from './components/TitleBar'
 import { TodayView } from './components/TodayView'
 import { TimetableManager } from './components/TimetableManager'
+import { SchedulesView } from './components/SchedulesView'
 import { TasksView } from './components/TasksView'
 import { TomorrowPlanner } from './components/TomorrowPlanner'
 import { WeeklyOverview } from './components/WeeklyOverview'
@@ -280,6 +281,14 @@ export default function App() {
 
               <button
                 type="button"
+                className={`sidebar-nav-item ${activeTab === 'schedules' ? 'active' : ''}`}
+                onClick={() => setActiveTab('schedules')}
+              >
+                <CalendarCheck size={15} /> Schedules
+              </button>
+
+              <button
+                type="button"
                 className={`sidebar-nav-item ${activeTab === 'tasks' ? 'active' : ''}`}
                 onClick={() => setActiveTab('tasks')}
               >
@@ -372,6 +381,10 @@ export default function App() {
                 onRefreshClasses={refreshClasses}
                 onShowMessage={setMessage}
               />
+            )}
+
+            {activeTab === 'schedules' && (
+              <SchedulesView onShowMessage={setMessage} />
             )}
 
             {activeTab === 'tasks' && (

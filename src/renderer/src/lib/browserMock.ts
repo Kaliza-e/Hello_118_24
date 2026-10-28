@@ -464,6 +464,115 @@ export function createBrowserMockApi(): HelloAPI {
       if (options.tasks) saveToStorage(STORAGE_KEYS.TASKS, [])
       if (options.classes) saveToStorage(STORAGE_KEYS.CLASSES, [])
       if (options.plans) saveToStorage(STORAGE_KEYS.DAILY_PLANS, {})
+      if (options.schedules) {
+        saveToStorage('hello11824_mock_schedules', [])
+        saveToStorage('hello11824_mock_source_docs', [])
+      }
+      return true
+    },
+
+    // Schedules & Ingestion
+    async pickAndIngestSchedule() {
+      return null
+    },
+    async parseScheduleText() {
+      return []
+    },
+    async listScheduleEvents(filters) {
+      let events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      if (filters?.category && filters.category !== 'All') {
+        events = events.filter(e => e.category === filters.category)
+      }
+      if (filters?.search) {
+        const q = filters.search.toLowerCase()
+        events = events.filter(e => e.title?.toLowerCase().includes(q) || e.description?.toLowerCase().includes(q))
+      }
+      return events
+    },
+    async getScheduleEvent(id: number) {
+      const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      return events.find(e => e.id === id) || null
+    },
+    async addScheduleEvent(payload: any, reminders?: any[]) {
+      const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      const newEv = {
+        ...payload,
+        id: Date.now(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        reminders: reminders || []
+      }
+      events.push(newEv)
+      saveToStorage('hello11824_mock_schedules', events)
+      return newEv
+    },
+    async updateScheduleEvent(id: number, updates: any, reminders?: any[]) {
+      const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      const idx = events.findIndex(e => e.id === id)
+      if (idx === -1) return null
+      events[idx] = {
+        ...events[idx],
+        ...updates,
+        reminders: reminders !== undefined ? reminders : events[idx].reminders,
+        user_edited: 1,
+        updated_at: new Date().toISOString()
+      }
+      saveToStorage('hello11824_mock_schedules', events)
+      return events[idx]
+    },
+    async deleteScheduleEvent(id: number) {
+      const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      saveToStorage('hello11824_mock_schedules', events.filter(e => e.id !== id))
+      return true
+    },
+    async toggleScheduleEventCompleted(id: number) {
+      const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      const target = events.find(e => e.id === id)
+      if (target) {
+        target.is_completed = target.is_completed ? 0 : 1
+        saveToStorage('hello11824_mock_schedules', events)
+      }
+      return true
+    },
+    async batchSaveScheduleEvents(payload: any) {
+      const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+      let docId: number | undefined = undefined
+      if (payload.documentMeta) {
+        const docs = loadFromStorage<any[]>('hello11824_mock_source_docs', [])
+        docId = Date.now()
+        docs.push({
+          id: docId,
+          ...payload.documentMeta,
+          event_count: payload.events.length,
+          imported_at: new Date().toISOString()
+        })
+        saveToStorage('hello11824_mock_source_docs', docs)
+      }
+      for (const ev of payload.events) {
+        events.push({
+          id: Date.now() + Math.floor(Math.random() * 10000),
+          source_doc_id: docId,
+          ...ev,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+      }
+      saveToStorage('hello11824_mock_schedules', events)
+      return { savedCount: payload.events.length, docId }
+    },
+    async listSourceDocuments() {
+      return loadFromStorage<any[]>('hello11824_mock_source_docs', [])
+    },
+    async deleteSourceDocument(id: number, deleteEvents?: boolean) {
+      const docs = loadFromStorage<any[]>('hello11824_mock_source_docs', [])
+      saveToStorage('hello11824_mock_source_docs', docs.filter(d => d.id !== id))
+      if (deleteEvents !== false) {
+        const events = loadFromStorage<any[]>('hello11824_mock_schedules', [])
+        saveToStorage('hello11824_mock_schedules', events.filter(e => e.source_doc_id !== id))
+      }
+      return true
+    },
+    async setEventReminders() {
       return true
     },
 

@@ -216,7 +216,30 @@ export interface HelloAPI {
   // Backup & Storage
   exportData(): Promise<boolean>
   importData(): Promise<boolean>
-  clearData(options: { tasks?: boolean; classes?: boolean; plans?: boolean }): Promise<boolean>
+  clearData(options: { tasks?: boolean; classes?: boolean; plans?: boolean; schedules?: boolean }): Promise<boolean>
+
+  // Schedules & Ingestion
+  pickAndIngestSchedule(): Promise<import('./types').ScheduleIngestionResult | null>
+  parseScheduleText(text: string): Promise<import('./types').CandidateScheduleEvent[]>
+  listScheduleEvents(filters?: import('./types').ScheduleEventFilters): Promise<import('./types').ScheduleEvent[]>
+  getScheduleEvent(id: number): Promise<import('./types').ScheduleEvent | null>
+  addScheduleEvent(payload: Partial<import('./types').ScheduleEvent>, reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>): Promise<import('./types').ScheduleEvent>
+  updateScheduleEvent(id: number, updates: Partial<import('./types').ScheduleEvent>, reminders?: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>): Promise<import('./types').ScheduleEvent | null>
+  deleteScheduleEvent(id: number): Promise<boolean>
+  toggleScheduleEventCompleted(id: number): Promise<boolean>
+  batchSaveScheduleEvents(payload: {
+    documentMeta?: {
+      fileName: string
+      fileHash: string
+      fileType: string
+      fileSize: number
+      rawText?: string
+    }
+    events: import('./types').CandidateScheduleEvent[]
+  }): Promise<{ savedCount: number; docId?: number }>
+  listSourceDocuments(): Promise<import('./types').SourceDocument[]>
+  deleteSourceDocument(id: number, deleteEvents?: boolean): Promise<boolean>
+  setEventReminders(eventId: number, reminders: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>): Promise<boolean>
 
   // Application Info
   getAppVersion(): Promise<string>

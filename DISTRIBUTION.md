@@ -31,6 +31,9 @@
   - **Linux:** `~/.config/hello-118-24/hello11824.sqlite`
 - **Data Stored:**
   - User timetable entries (`classes`: title, weekday, start_time, end_time, room, notes, color).
+  - Flexible schedules and academic/exam calendar events (`schedule_events`: title, description, category, tags, start_date, start_time, end_date, end_time, recurrence_rule, location, confidence, user_edited).
+  - Event reminders and delivery records (`event_reminders`).
+  - Source document ingestion records with SHA-256 deduplication hashes (`source_documents`).
   - User to-dos (`tasks`: title, description, due_date, due_time, priority, completed, category, estimated_minutes).
   - Daily planning notes and packed materials checklists (`daily_plans`).
   - User interface settings (`settings`: widget_mode, pinned, theme, notification lead times, quiet hours).

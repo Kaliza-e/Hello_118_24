@@ -33,6 +33,14 @@ Hello 118:24 is designed as a focused, calming desktop companion for school, pro
   - Interactive **Import Review Modal**: Edit subject names, days, start/end times, and rooms before saving.
   - Choose to replace or append to your existing schedule.
   - Manual add, edit, and deletion of recurring classes.
+- **Schedules & Calendars (Flexible Ingestion & Reminders)**:
+  - Unified chronological timeline and calendar view grouped by month.
+  - Multi-criteria filtering by category (**Academic Calendar**, **Exams**, **Assignments**, **Applications**, **Events**, **Workshops**, **Meetings**, **Personal**, **Other**), completion status, and source document.
+  - Search by title, description, or notes.
+  - Flexible document ingestion supporting **PDF** (selectable text and scanned via direct embedded JPEG extraction), **DOCX**, **XLSX**, **CSV**, and images (**PNG**, **JPG**, **WEBP**).
+  - Robust format and layout parsing: academic year/term detection (e.g. `2026/2027`), intra-month date ranges, cross-month date ranges spanning year boundaries (e.g. `18 December - 3 January`), single dates, timed sessions, and pipe-delimited tables.
+  - **Review Queue Modal**: Review candidates, preview extraction confidence, inline-edit dates and categories, exclude unwanted items, duplicate SHA-256 detection, and OCR progress for scanned pages.
+  - **Event Reminders & Alarms**: Configurable lead-time alerts for timed events (5m, 15m, 30m, 1h, 1d) and customizable morning delivery time for all-day events (`08:00`), backed by persistent SQLite deduplication and catch-up on application restart.
 - **Tasks & To-Dos**:
   - Persistent SQLite storage with title, description, due date, due time, priority (low, normal, high), and category.
   - Filter by **Today**, **Tomorrow**, **Upcoming**, **Overdue**, **Completed**, and **All**.
@@ -86,6 +94,9 @@ Tables:
 - `daily_plans`: `plan_date`, `notes`, `materials_checked`, `created_at`, `updated_at`
 - `settings`: `key`, `value`
 - `import_history`: `id`, `file_name`, `file_type`, `imported_count`, `imported_at`
+- `source_documents`: `id`, `file_name`, `file_type`, `file_size`, `file_hash` (SHA-256 unique), `raw_text`, `imported_at`
+- `schedule_events`: `id`, `source_doc_id`, `title`, `description`, `category`, `tags`, `start_date`, `start_time`, `end_date`, `end_time`, `is_all_day`, `location`, `recurrence_rule`, `source_excerpt`, `source_page`, `confidence`, `review_status`, `is_completed`, `user_edited`, `created_at`, `updated_at`
+- `event_reminders`: `id`, `event_id`, `trigger_offset_minutes`, `all_day_delivery_time`, `last_triggered_at`, `is_delivered`, `created_at`
 
 ---
 
@@ -104,7 +115,7 @@ npm install
 # 2. Run TypeScript typecheck
 npm run typecheck
 
-# 3. Run automated tests (42/42 tests pass)
+# 3. Run automated tests (58/58 tests pass)
 npm test
 
 # 4. Start the app in development mode
