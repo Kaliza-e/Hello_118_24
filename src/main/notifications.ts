@@ -1,10 +1,10 @@
-import { Notification } from 'electron'
+import { Notification, NativeImage } from 'electron'
 import { listClasses, listTasks, getSetting } from './db'
 import { getFreeTimeSuggestion } from './freeTimeEngine'
 
 let reminderInterval: NodeJS.Timeout | null = null
 const sentNotificationKeys = new Set<string>()
-let getIconResolver: (() => string) | null = null
+let getIconResolver: (() => string | NativeImage) | null = null
 
 // Clear old notifications cache periodically (e.g. after 12h or if large)
 setInterval(() => {
@@ -13,7 +13,7 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000)
 
-export function initNotifications(iconResolver?: () => string): void {
+export function initNotifications(iconResolver?: () => string | NativeImage): void {
   if (iconResolver) {
     getIconResolver = iconResolver
   }

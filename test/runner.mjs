@@ -48,7 +48,7 @@ run({
   files: [
     resolve('test/parser.test.mjs'),
     resolve('test/database.test.mjs'),
-    resolve('test/updater.test.mjs'),
+    resolve('test/packaging.test.mjs'),
     resolve('test/freeTime.test.mjs'),
     resolve('test/crossPlatform.test.mjs'),
     resolve('test/security.test.mjs')

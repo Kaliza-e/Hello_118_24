@@ -18,12 +18,10 @@
     "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 300; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis",
     "package:mac": "npm run build && electron-builder --mac",
     "package:linux": "npm run build && electron-builder --linux",
-    "package:all": "npm run build && electron-builder -mwl",
-    "publish:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 300; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis --publish always"
+    "package:all": "npm run build && electron-builder -mwl"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
-    "electron-updater": "^6.8.11",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.9.0",
     "pdf-parse": "^1.1.1",
@@ -47,11 +45,6 @@
   "build": {
     "appId": "com.hello11824.desktop",
     "productName": "Hello 118:24",
-    "publish": {
-      "provider": "github",
-      "owner": "Kaliza-e",
-      "repo": "Hello_118_24"
-    },
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -61,6 +54,16 @@
       "build/icon.ico",
       "build/icon.png",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*"

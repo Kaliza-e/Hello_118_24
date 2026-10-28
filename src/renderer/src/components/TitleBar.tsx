@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import appLogo from '../assets/icon.png'
 import {
   Pin,
   Minus,
@@ -69,7 +70,7 @@ export function TitleBar({
   return (
     <header className="titlebar">
       <div className="brand">
-        <img src="/icon.png" alt="Hello 118:24 logo" className="brand-logo-img" />
+        <img src={appLogo} alt="Hello 118:24 logo" className="brand-logo-img" />
         <div className="brand-title">
           <span className="brand-script">Hello</span>
           <span className="brand-number">118:24</span>

@@ -467,32 +467,9 @@ export function createBrowserMockApi(): HelloAPI {
       return true
     },
 
-    // Auto-updater browser mock
+    // Application Info
     async getAppVersion() {
-      return '0.1.0'
-    },
-    async getUpdateStatus() {
-      return {
-        state: 'not-available',
-        currentVersion: '0.1.0',
-        isPackaged: false,
-        error: 'Running in browser preview'
-      }
-    },
-    async checkForUpdates() {
-      return {
-        state: 'not-available',
-        currentVersion: '0.1.0',
-        isPackaged: false,
-        error: 'Browser preview: auto-updates require Electron desktop app.'
-      }
-    },
-    async downloadUpdate() {
-      return false
-    },
-    async quitAndInstallUpdate() {},
-    onUpdateStatusChanged() {
-      return () => {}
+      return '0.1.1'
     }
   }
 }

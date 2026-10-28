@@ -28,7 +28,6 @@ import {
 } from './db'
 import { parseTimetableText } from './importers/parser'
 import { initNotifications } from './notifications'
-import { initUpdater, cleanupUpdater } from './updater'
 import {
   getFreeTimeSuggestion,
   snoozeFreeTimeReminder,
@@ -65,38 +64,39 @@ if (!gotSingleInstanceLock) {
   app.quit()
 }
 
-export function getWindowIcon(): string {
-  if (process.platform === 'linux') {
-    const candidateLinuxPaths = [
-      join(__dirname, '../../build/icon.png'),
-      join(__dirname, '../build/icon.png'),
-      join(app.getAppPath(), 'build/icon.png')
-    ]
-    for (const p of candidateLinuxPaths) {
-      if (existsSync(p)) return p
-    }
-  }
-
-  const candidatePaths = [
-    join(__dirname, '../../build/icon.ico'),
-    join(__dirname, '../build/icon.ico'),
+export function getWindowIcon(): Electron.NativeImage | string {
+  // 1. Try loading high-res PNG via nativeImage - works reliably across Windows, macOS, Linux, and from within ASAR archives
+  const candidatePngs = [
+    join(process.resourcesPath, 'icon.png'),
     join(__dirname, '../../build/icon.png'),
     join(__dirname, '../build/icon.png'),
-    join(app.getAppPath(), 'build/icon.ico'),
-    join(app.getAppPath(), 'build/icon.png')
+    join(app.getAppPath(), 'build/icon.png'),
+    join(__dirname, '../../src/renderer/public/icon.png')
   ]
 
-  if (process.platform === 'win32') {
-    for (const p of candidatePaths) {
-      if (p.endsWith('.ico') && existsSync(p)) return p
+  for (const p of candidatePngs) {
+    if (existsSync(p)) {
+      try {
+        const img = nativeImage.createFromPath(p)
+        if (!img.isEmpty()) return img
+      } catch {}
     }
   }
 
-  for (const p of candidatePaths) {
-    if (existsSync(p)) return p
+  // 2. Try loading standalone ICO if present outside ASAR or in dev
+  const candidateIcos = [
+    join(process.resourcesPath, 'icon.ico'),
+    join(__dirname, '../../build/icon.ico'),
+    join(app.getAppPath(), 'build/icon.ico')
+  ]
+
+  for (const p of candidateIcos) {
+    if (existsSync(p) && !p.includes('.asar')) {
+      return p
+    }
   }
 
-  return join(app.getAppPath(), 'build/icon.png')
+  return process.execPath
 }
 
 // Ensures a Start Menu shortcut exists with the app's AppUserModelId on Windows
@@ -107,7 +107,11 @@ export function ensureWindowsShortcut(): void {
     const programsPath = join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs')
     if (!existsSync(programsPath)) return
     const shortcutPath = join(programsPath, 'Hello 11824.lnk')
-    const icoPath = getWindowIcon()
+
+    // For packaged Windows installs, the shortcut icon MUST point to the actual EXE (which has the ICO embedded)
+    // or an uncompressed .ico file. Pointing to paths inside app.asar causes Windows to display a blank document icon!
+    const icoPath = isDev ? join(__dirname, '../../build/icon.ico') : process.execPath
+
     shell.writeShortcutLink(shortcutPath, existsSync(shortcutPath) ? 'update' : 'create', {
       target: process.execPath,
       args: isDev ? `"${app.getAppPath()}"` : '',
@@ -333,8 +337,8 @@ export function isSafeExternalUrl(targetUrl: string): boolean {
 export function setupSecurityHeaders(): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const connectSrc = isDev
-      ? "connect-src 'self' blob: data: ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:* https://api.github.com https://github.com https://fonts.googleapis.com https://fonts.gstatic.com"
-      : "connect-src 'self' blob: data: https://api.github.com https://github.com https://fonts.googleapis.com https://fonts.gstatic.com"
+      ? "connect-src 'self' blob: data: ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:* https://fonts.googleapis.com https://fonts.gstatic.com"
+      : "connect-src 'self' blob: data: https://fonts.googleapis.com https://fonts.gstatic.com"
 
     const csp = [
       "default-src 'self'",
@@ -396,6 +400,8 @@ function createWindow() {
     initialBounds = ensureWindowWithinDisplayBounds(initialBounds.x, initialBounds.y, initialBounds.width, initialBounds.height)
   }
 
+  const appIcon = getWindowIcon()
+
   mainWindow = new BrowserWindow({
     width: initialBounds.width,
     height: initialBounds.height,
@@ -410,7 +416,7 @@ function createWindow() {
     resizable: true,
     show: false,
     title: 'Hello 118:24',
-    icon: getWindowIcon(),
+    icon: appIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -420,6 +426,12 @@ function createWindow() {
       allowRunningInsecureContent: false
     }
   })
+
+  if (typeof appIcon !== 'string' && !appIcon.isEmpty()) {
+    try {
+      mainWindow.setIcon(appIcon)
+    } catch {}
+  }
 
   // Prevent creation of untrusted popup windows; open safe external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -469,8 +481,6 @@ function createWindow() {
       logInfo(`[Renderer Console] [level=${level}] ${message} (${sourceId}:${line})`)
     }
   })
-
-  initUpdater(mainWindow)
 
   const showMainWindow = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
@@ -729,10 +739,15 @@ app.on('child-process-gone', (_event, details) => {
 
 app.on('before-quit', () => {
   isAppQuitting = true
-  cleanupUpdater()
 })
 
 // ----------------- IPC Channel Handlers -----------------
+
+// Application Info
+ipcMain.handle('app:get-version', (event) => {
+  assertAuthorizedSender(event)
+  return app.getVersion()
+})
 
 const MAX_DOC_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB max for PDF / Word documents
 const MAX_IMG_SIZE_BYTES = 15 * 1024 * 1024 // 15 MB max for images

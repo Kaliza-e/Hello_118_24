@@ -125,17 +125,8 @@ const api = {
   importData: () => ipcRenderer.invoke('data:import'),
   clearData: (options: { tasks?: boolean; classes?: boolean; plans?: boolean }) => ipcRenderer.invoke('data:clear', options),
 
-  // Auto-Updater
-  getAppVersion: () => ipcRenderer.invoke('updater:get-version'),
-  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
-  checkForUpdates: (manual = true) => ipcRenderer.invoke('updater:check', manual),
-  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
-  quitAndInstallUpdate: () => ipcRenderer.invoke('updater:install'),
-  onUpdateStatusChanged: (callback: (status: any) => void) => {
-    const handler = (_event: any, data: any) => callback(data)
-    ipcRenderer.on('updater:status-changed', handler)
-    return () => ipcRenderer.removeListener('updater:status-changed', handler)
-  }
+  // Application Info
+  getAppVersion: () => ipcRenderer.invoke('app:get-version')
 }
 
 contextBridge.exposeInMainWorld('hello11824', api)

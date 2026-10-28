@@ -39,8 +39,7 @@
   - SQLite data is stored in standard SQLite WAL format. It is **not** encrypted at rest with SQLCipher. (Documented truthfully to avoid false security claims).
 - **Network Requests:**
   - **Telemetry / Analytics:** None. Zero tracking or telemetry SDKs are bundled.
-  - **Remote APIs:** None. All scheduling, free-time suggestions, OCR extraction, and database transactions execute 100% locally.
-  - **Auto-Update Checks:** In packaged production builds, the app queries `https://api.github.com/repos/Kaliza-e/Hello_118_24/releases` via HTTPS to detect newer versions. This can be controlled or disabled by the user.
+  - **Remote APIs:** None. 100% offline and self-contained; all scheduling, free-time suggestions, OCR extraction, and database transactions execute locally on the device.
 
 ---
 

@@ -103,14 +103,12 @@ describe('Security & Hardening Audit Verification', () => {
     assert.ok(!code.includes('`INSERT INTO tasks VALUES (${'), 'Must not have template literal SQL injection in inserts')
   })
 
-  it('Packaging Configuration: does not publish by default and isolates app secrets', () => {
+  it('Packaging Configuration: does not publish releases and isolates app secrets', () => {
     const pkgPath = resolve('package.json')
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
 
     assert.ok(pkg.build, 'build object must exist')
-    assert.equal(pkg.build.publish?.provider, 'github')
-    assert.equal(pkg.build.publish?.owner, 'Kaliza-e')
-    assert.equal(pkg.build.publish?.repo, 'Hello_118_24')
+    assert.equal(pkg.build.publish, undefined, 'build.publish must not be configured')
 
     // Verify CI script does not blindly publish without credentials or manual dispatch
     const ciPath = resolve('.github/workflows/build.yml')
