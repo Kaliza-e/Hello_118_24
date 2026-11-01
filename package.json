@@ -91,6 +91,7 @@
     "mac": {
       "icon": "build/icon.png",
       "category": "public.app-category.education",
+      "executableName": "Hello 11824",
       "target": [
         {
           "target": "dmg",
