@@ -141,7 +141,7 @@ npm run package:linux
 ```
 
 This compiles production assets and generates:
-1. **Windows Installer**: `release/Hello 11824 Setup 0.1.1.exe`
-2. **macOS**: `release/Hello-118-24-0.1.1.dmg` and `release/Hello-118-24-0.1.1-mac.zip`
-3. **Linux**: `release/Hello-118-24-0.1.1.AppImage` and `release/hello-118-24_0.1.1_amd64.deb`
+1. **Windows Installer**: `release/Hello 11824 Setup 0.1.2.exe`
+2. **macOS**: `release/Hello 11824-0.1.2.dmg` and `release/Hello 11824-0.1.2-mac.zip`
+3. **Linux**: `release/Hello-118-24-0.1.2.AppImage` and `release/hello-118-24_0.1.2_amd64.deb`
 4. **Unpacked Executable**: `release/win-unpacked/Hello 11824.exe`

@@ -14,11 +14,11 @@
 
 | Operating System | Target Package Format | Target Architecture | Generated Artifact Filename | Installation Details |
 | :--- | :--- | :--- | :--- | :--- |
-| **Windows** | NSIS Installer (.exe) | `x64` | `Hello 11824 Setup 0.1.1.exe` | Standard wizard; creates desktop & Start Menu shortcuts with `com.hello11824.desktop` AppUserModelID |
-| **macOS** | Apple Disk Image (.dmg) | Universal (`x64` + `arm64`) | `Hello-118-24-0.1.1.dmg` | Drag-to-Applications bundle |
-| **macOS** | Portable ZIP (.zip) | Universal (`x64` + `arm64`) | `Hello-118-24-0.1.1-mac.zip` | Standalone application folder |
-| **Linux** | AppImage | `x64` | `Hello-118-24-0.1.1.AppImage` | Portable binary (`chmod +x && ./Hello-118-24-0.1.1.AppImage`) |
-| **Linux** | Debian Package (.deb) | `x64` (amd64) | `hello-118-24_0.1.1_amd64.deb` | System package (`sudo dpkg -i hello-118-24_0.1.1_amd64.deb`) |
+| **Windows** | NSIS Installer (.exe) | `x64` | `Hello 11824 Setup 0.1.2.exe` | Standard wizard; creates desktop & Start Menu shortcuts with `com.hello11824.desktop` AppUserModelID |
+| **macOS** | Apple Disk Image (.dmg) | Universal (`x64` + `arm64`) | `Hello 11824-0.1.2.dmg` | Drag-to-Applications bundle |
+| **macOS** | Portable ZIP (.zip) | Universal (`x64` + `arm64`) | `Hello 11824-0.1.2-mac.zip` | Standalone application folder |
+| **Linux** | AppImage | `x64` | `Hello-118-24-0.1.2.AppImage` | Portable binary (`chmod +x && ./Hello-118-24-0.1.2.AppImage`) |
+| **Linux** | Debian Package (.deb) | `x64` (amd64) | `hello-118-24_0.1.2_amd64.deb` | System package (`sudo dpkg -i hello-118-24_0.1.2_amd64.deb`) |
 
 ---
 
