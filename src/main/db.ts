@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, copyFileSync, readdirSync, unlinkSync } from 'node:fs'
+import { encryptAtRest, decryptAtRest } from './security'
 
 export interface TaskRecord {
   id: number
@@ -14,7 +15,36 @@ export interface TaskRecord {
   category: string | null
   class_id: number | null
   estimated_minutes?: number | null
+  scheduled_date?: string | null
+  scheduled_time?: string | null
+  scheduled_duration_minutes?: number | null
+  total_time_spent_seconds?: number
   created_at: string
+}
+
+export interface TaskSessionRecord {
+  id: number
+  task_id: number
+  start_time: string
+  end_time: string | null
+  duration_seconds: number
+  is_pomodoro: number
+  created_at: string
+}
+
+export interface ActiveTimerRecord {
+  id: number
+  task_id: number
+  status: 'idle' | 'running' | 'paused'
+  start_time: string | null
+  accumulated_seconds: number
+  is_pomodoro: number
+  pomodoro_phase: 'work' | 'break'
+  pomodoro_work_duration: number
+  pomodoro_break_duration: number
+  last_heartbeat: string | null
+  task_title?: string
+  total_time_spent_seconds?: number
 }
 
 export interface ClassRecord {
@@ -94,6 +124,8 @@ export interface ScheduleEventRecord {
   reminders?: EventReminderRecord[]
   source_document_name?: string
 }
+
+export type ScheduleEvent = ScheduleEventRecord
 
 export interface EventReminderRecord {
   id: number
@@ -349,6 +381,78 @@ export function initDatabase(): Database.Database {
     }
   }
 
+  if (currentVersion < 4) {
+    try {
+      const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>
+      if (!taskCols.some(col => col.name === 'scheduled_date')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN scheduled_date TEXT;`)
+      }
+      if (!taskCols.some(col => col.name === 'scheduled_time')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN scheduled_time TEXT;`)
+      }
+      if (!taskCols.some(col => col.name === 'scheduled_duration_minutes')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN scheduled_duration_minutes INTEGER;`)
+      }
+      if (!taskCols.some(col => col.name === 'total_time_spent_seconds')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN total_time_spent_seconds INTEGER NOT NULL DEFAULT 0;`)
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          start_time TEXT NOT NULL,
+          end_time TEXT,
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          is_pomodoro INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS active_timer (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'idle',
+          start_time TEXT,
+          accumulated_seconds INTEGER NOT NULL DEFAULT 0,
+          is_pomodoro INTEGER NOT NULL DEFAULT 0,
+          pomodoro_phase TEXT NOT NULL DEFAULT 'work',
+          pomodoro_work_duration INTEGER NOT NULL DEFAULT 1500,
+          pomodoro_break_duration INTEGER NOT NULL DEFAULT 300,
+          last_heartbeat TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_task_sessions_task ON task_sessions(task_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_scheduled ON tasks(scheduled_date, scheduled_time);
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (4);
+      `)
+    } catch (err) {
+      console.error('Error running migration v4:', err)
+    }
+  }
+
+  if (currentVersion < 5) {
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS journal_entries (
+          entry_date TEXT NOT NULL,
+          check_in_type TEXT NOT NULL CHECK(check_in_type IN ('morning', 'evening')),
+          gratitude TEXT,
+          intention TEXT,
+          reflection TEXT,
+          mood TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (entry_date, check_in_type)
+        );
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (5);
+      `)
+    } catch (err) {
+      console.error('Error running migration v5:', err)
+    }
+  }
+
   // Ensure default settings exist
   const defaultSettings: Record<string, string> = {
     pinned: 'true',
@@ -364,7 +468,10 @@ export function initDatabase(): Database.Database {
     quiet_hours_enabled: 'true',
     quiet_hours_start: '21:00',
     quiet_hours_end: '07:00',
-    verse_visible: 'true'
+    verse_visible: 'true',
+    faith_enabled: 'true',
+    journal_enabled: 'true',
+    bible_translation: 'KJV'
   }
 
   const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
@@ -428,6 +535,9 @@ export function addTask(payload: {
   category?: string
   classId?: number
   estimatedMinutes?: number | null
+  scheduledDate?: string | null
+  scheduledTime?: string | null
+  scheduledDurationMinutes?: number | null
 }): TaskRecord {
   const title = (payload.title || '').trim().slice(0, 240)
   if (!title) {
@@ -435,10 +545,14 @@ export function addTask(payload: {
   }
   const priority = ['low', 'normal', 'high'].includes(payload.priority || '') ? payload.priority! : 'normal'
   const estMins = typeof payload.estimatedMinutes === 'number' && !isNaN(payload.estimatedMinutes) ? payload.estimatedMinutes : null
+  const schedDate = payload.scheduledDate || null
+  const schedTime = payload.scheduledTime || null
+  const schedDur = typeof payload.scheduledDurationMinutes === 'number' && !isNaN(payload.scheduledDurationMinutes) ? payload.scheduledDurationMinutes : null
+
   const d = getDatabase()
   const info = d.prepare(`
-    INSERT INTO tasks (title, description, due_date, due_time, priority, category, class_id, estimated_minutes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (title, description, due_date, due_time, priority, category, class_id, estimated_minutes, scheduled_date, scheduled_time, scheduled_duration_minutes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     title,
     payload.description?.trim() || null,
@@ -447,7 +561,10 @@ export function addTask(payload: {
     priority,
     payload.category?.trim() || null,
     payload.classId || null,
-    estMins
+    estMins,
+    schedDate,
+    schedTime,
+    schedDur
   )
   return d.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid) as TaskRecord
 }
@@ -462,6 +579,10 @@ export function updateTask(id: number, payload: Partial<{
   category: string | null
   classId: number | null
   estimatedMinutes: number | null
+  scheduledDate: string | null
+  scheduledTime: string | null
+  scheduledDurationMinutes: number | null
+  totalTimeSpentSeconds: number
 }>): TaskRecord {
   const d = getDatabase()
   const existing = d.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRecord | undefined
@@ -478,12 +599,17 @@ export function updateTask(id: number, payload: Partial<{
   const nextCategory = payload.category !== undefined ? payload.category : existing.category
   const nextClassId = payload.classId !== undefined ? payload.classId : existing.class_id
   const nextEstMins = payload.estimatedMinutes !== undefined ? payload.estimatedMinutes : (existing.estimated_minutes ?? null)
+  const nextSchedDate = payload.scheduledDate !== undefined ? payload.scheduledDate : (existing.scheduled_date ?? null)
+  const nextSchedTime = payload.scheduledTime !== undefined ? payload.scheduledTime : (existing.scheduled_time ?? null)
+  const nextSchedDur = payload.scheduledDurationMinutes !== undefined ? payload.scheduledDurationMinutes : (existing.scheduled_duration_minutes ?? null)
+  const nextTotalSpent = payload.totalTimeSpentSeconds !== undefined ? payload.totalTimeSpentSeconds : (existing.total_time_spent_seconds ?? 0)
 
   d.prepare(`
     UPDATE tasks 
-    SET title = ?, description = ?, due_date = ?, due_time = ?, priority = ?, completed = ?, category = ?, class_id = ?, estimated_minutes = ?
+    SET title = ?, description = ?, due_date = ?, due_time = ?, priority = ?, completed = ?, category = ?, class_id = ?, estimated_minutes = ?,
+        scheduled_date = ?, scheduled_time = ?, scheduled_duration_minutes = ?, total_time_spent_seconds = ?
     WHERE id = ?
-  `).run(nextTitle, nextDesc, nextDueDate, nextDueTime, nextPriority, nextCompleted, nextCategory, nextClassId, nextEstMins, id)
+  `).run(nextTitle, nextDesc, nextDueDate, nextDueTime, nextPriority, nextCompleted, nextCategory, nextClassId, nextEstMins, nextSchedDate, nextSchedTime, nextSchedDur, nextTotalSpent, id)
 
   return d.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRecord
 }
@@ -506,6 +632,221 @@ export function rolloverTasks(fromDueDate: string, toDueDate: string): number {
     WHERE completed = 0 AND due_date = ?
   `).run(toDueDate, fromDueDate)
   return result.changes
+}
+
+// ----------------- Time Tracking & Task Focus Session Operations -----------------
+
+export function getActiveTimer(): (ActiveTimerRecord & { elapsed_seconds: number }) | null {
+  const d = getDatabase()
+  const row = d.prepare(`
+    SELECT at.*, t.title as task_title, t.total_time_spent_seconds
+    FROM active_timer at
+    JOIN tasks t ON at.task_id = t.id
+    WHERE at.id = 1
+  `).get() as ActiveTimerRecord | undefined
+
+  if (!row || row.status === 'idle') return null
+
+  let elapsedSeconds = row.accumulated_seconds
+  if (row.status === 'running' && row.start_time) {
+    const startMs = new Date(row.start_time).getTime()
+    const nowMs = Date.now()
+    if (!isNaN(startMs) && nowMs > startMs) {
+      elapsedSeconds += Math.floor((nowMs - startMs) / 1000)
+    }
+  }
+
+  try {
+    d.prepare("UPDATE active_timer SET last_heartbeat = CURRENT_TIMESTAMP WHERE id = 1").run()
+  } catch {}
+
+  return {
+    ...row,
+    elapsed_seconds: elapsedSeconds
+  }
+}
+
+export function startTimer(taskId: number, options?: {
+  isPomodoro?: boolean
+  workDuration?: number
+  breakDuration?: number
+}): ActiveTimerRecord & { elapsed_seconds: number } {
+  const d = getDatabase()
+  const nowIso = new Date().toISOString()
+  const isPomo = options?.isPomodoro ? 1 : 0
+  const workDur = options?.workDuration || 1500 // 25 min default
+  const breakDur = options?.breakDuration || 300 // 5 min default
+
+  // Stop any existing active timer first
+  const existing = getActiveTimer()
+  if (existing && existing.task_id !== taskId) {
+    stopTimer()
+  }
+
+  d.prepare(`
+    INSERT INTO active_timer (id, task_id, status, start_time, accumulated_seconds, is_pomodoro, pomodoro_phase, pomodoro_work_duration, pomodoro_break_duration, last_heartbeat)
+    VALUES (1, ?, 'running', ?, 0, ?, 'work', ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET
+      task_id = excluded.task_id,
+      status = 'running',
+      start_time = excluded.start_time,
+      accumulated_seconds = 0,
+      is_pomodoro = excluded.is_pomodoro,
+      pomodoro_phase = 'work',
+      pomodoro_work_duration = excluded.pomodoro_work_duration,
+      pomodoro_break_duration = excluded.pomodoro_break_duration,
+      last_heartbeat = CURRENT_TIMESTAMP
+  `).run(taskId, nowIso, isPomo, workDur, breakDur)
+
+  return getActiveTimer()!
+}
+
+export function pauseTimer(): (ActiveTimerRecord & { elapsed_seconds: number }) | null {
+  const d = getDatabase()
+  const active = getActiveTimer()
+  if (!active || active.status !== 'running') return active
+
+  d.prepare(`
+    UPDATE active_timer
+    SET status = 'paused',
+        accumulated_seconds = ?,
+        start_time = NULL,
+        last_heartbeat = CURRENT_TIMESTAMP
+    WHERE id = 1
+  `).run(active.elapsed_seconds)
+
+  return getActiveTimer()
+}
+
+export function resumeTimer(): (ActiveTimerRecord & { elapsed_seconds: number }) | null {
+  const d = getDatabase()
+  const active = getActiveTimer()
+  if (!active || active.status !== 'paused') return active
+
+  d.prepare(`
+    UPDATE active_timer
+    SET status = 'running',
+        start_time = ?,
+        last_heartbeat = CURRENT_TIMESTAMP
+    WHERE id = 1
+  `).run(new Date().toISOString())
+
+  return getActiveTimer()
+}
+
+export function stopTimer(): { taskId: number; sessionDurationSeconds: number; totalSpentSeconds: number } | null {
+  const d = getDatabase()
+  const active = getActiveTimer()
+  if (!active) return null
+
+  const sessionDuration = active.elapsed_seconds
+  const taskId = active.task_id
+  const nowIso = new Date().toISOString()
+
+  if (sessionDuration >= 5) {
+    const startTimeIso = active.start_time || new Date(Date.now() - sessionDuration * 1000).toISOString()
+    d.prepare(`
+      INSERT INTO task_sessions (task_id, start_time, end_time, duration_seconds, is_pomodoro)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(taskId, startTimeIso, nowIso, sessionDuration, active.is_pomodoro)
+
+    d.prepare(`
+      UPDATE tasks
+      SET total_time_spent_seconds = COALESCE(total_time_spent_seconds, 0) + ?
+      WHERE id = ?
+    `).run(sessionDuration, taskId)
+  }
+
+  d.prepare(`DELETE FROM active_timer WHERE id = 1`).run()
+
+  const updatedTask = d.prepare(`SELECT total_time_spent_seconds FROM tasks WHERE id = ?`).get(taskId) as { total_time_spent_seconds: number } | undefined
+  return {
+    taskId,
+    sessionDurationSeconds: sessionDuration,
+    totalSpentSeconds: updatedTask?.total_time_spent_seconds ?? 0
+  }
+}
+
+export function markTaskDoneWithTimer(taskId: number): {
+  task: TaskRecord
+  timeSpentSeconds: number
+} {
+  const d = getDatabase()
+  const active = getActiveTimer()
+  if (active && active.task_id === taskId) {
+    stopTimer()
+  }
+  d.prepare('UPDATE tasks SET completed = 1 WHERE id = ?').run(taskId)
+  const task = d.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRecord
+  return {
+    task,
+    timeSpentSeconds: task.total_time_spent_seconds || 0
+  }
+}
+
+export function undoMarkTaskDone(taskId: number): TaskRecord {
+  const d = getDatabase()
+  d.prepare('UPDATE tasks SET completed = 0 WHERE id = ?').run(taskId)
+  return d.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRecord
+}
+
+export function listTaskSessions(taskId: number): TaskSessionRecord[] {
+  return getDatabase().prepare(`
+    SELECT * FROM task_sessions
+    WHERE task_id = ?
+    ORDER BY id DESC
+  `).all(taskId) as TaskSessionRecord[]
+}
+
+export function scheduleTask(taskId: number, date: string, time?: string | null, durationMinutes?: number | null): TaskRecord {
+  const d = getDatabase()
+  d.prepare(`
+    UPDATE tasks
+    SET scheduled_date = ?,
+        scheduled_time = ?,
+        scheduled_duration_minutes = ?
+    WHERE id = ?
+  `).run(date, time || null, durationMinutes || 30, taskId)
+  return d.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRecord
+}
+
+export function getWeeklyStudyStats(startDate: string, endDate: string): {
+  dailyStudiedSeconds: Record<string, number>
+  totalStudiedSeconds: number
+  plannedMinutes: number
+  actualMinutes: number
+} {
+  const d = getDatabase()
+  
+  const sessionRows = d.prepare(`
+    SELECT substr(start_time, 1, 10) as day_date, SUM(duration_seconds) as total_seconds
+    FROM task_sessions
+    WHERE substr(start_time, 1, 10) >= ? AND substr(start_time, 1, 10) <= ?
+    GROUP BY day_date
+  `).all(startDate, endDate) as Array<{ day_date: string; total_seconds: number }>
+
+  const dailyStudiedSeconds: Record<string, number> = {}
+  let totalStudiedSeconds = 0
+  for (const r of sessionRows) {
+    dailyStudiedSeconds[r.day_date] = r.total_seconds
+    totalStudiedSeconds += r.total_seconds
+  }
+
+  const plannedRow = d.prepare(`
+    SELECT SUM(COALESCE(scheduled_duration_minutes, estimated_minutes, 30)) as planned_mins
+    FROM tasks
+    WHERE scheduled_date >= ? AND scheduled_date <= ?
+  `).get(startDate, endDate) as { planned_mins: number | null } | undefined
+
+  const plannedMinutes = plannedRow?.planned_mins || 0
+  const actualMinutes = Math.round(totalStudiedSeconds / 60)
+
+  return {
+    dailyStudiedSeconds,
+    totalStudiedSeconds,
+    plannedMinutes,
+    actualMinutes
+  }
 }
 
 // Classes
@@ -687,13 +1028,18 @@ export const appendSubjects = appendClasses
 // Daily Plans
 export function getDailyPlan(date: string): DailyPlanRecord | null {
   const row = getDatabase().prepare('SELECT * FROM daily_plans WHERE plan_date = ?').get(date) as DailyPlanRecord | undefined
-  return row || null
+  if (!row) return null
+  return {
+    ...row,
+    notes: row.notes ? decryptAtRest(row.notes) : null
+  }
 }
 
 export function saveDailyPlan(date: string, payload: { notes?: string; materialsChecked?: string[] }): DailyPlanRecord {
   const d = getDatabase()
   const existing = getDailyPlan(date)
-  const notes = payload.notes !== undefined ? payload.notes : (existing?.notes ?? '')
+  const rawNotes = payload.notes !== undefined ? payload.notes : (existing?.notes ?? '')
+  const storedNotes = rawNotes ? encryptAtRest(rawNotes) : null
   const materialsJson = payload.materialsChecked !== undefined 
     ? JSON.stringify(payload.materialsChecked) 
     : (existing?.materials_checked ?? '[]')
@@ -705,7 +1051,7 @@ export function saveDailyPlan(date: string, payload: { notes?: string; materials
       notes = excluded.notes,
       materials_checked = excluded.materials_checked,
       updated_at = CURRENT_TIMESTAMP
-  `).run(date, notes, materialsJson)
+  `).run(date, storedNotes, materialsJson)
 
   return getDailyPlan(date)!
 }
@@ -726,7 +1072,10 @@ export function exportAllData(): {
     exportedAt: new Date().toISOString(),
     tasks: d.prepare('SELECT * FROM tasks').all() as TaskRecord[],
     classes: d.prepare('SELECT * FROM classes').all() as ClassRecord[],
-    dailyPlans: d.prepare('SELECT * FROM daily_plans').all() as DailyPlanRecord[],
+    dailyPlans: (d.prepare('SELECT * FROM daily_plans').all() as DailyPlanRecord[]).map(p => ({
+      ...p,
+      notes: p.notes ? decryptAtRest(p.notes) : null
+    })),
     settings: getAllSettings(),
     importHistory: d.prepare('SELECT * FROM import_history').all() as ImportHistoryRecord[]
   }
@@ -802,10 +1151,11 @@ export function importAllData(data: {
         const safePlanDate = /^\d{4}-\d{2}-\d{2}$/.test(p.plan_date) ? p.plan_date : null
         if (!safePlanDate) continue
         const safeNotes = typeof p.notes === 'string' ? p.notes.slice(0, 2000) : null
+        const encryptedNotes = safeNotes ? encryptAtRest(safeNotes) : null
         const safeMaterials = typeof p.materials_checked === 'string' ? p.materials_checked : '[]'
         const safeCreatedAt = typeof p.created_at === 'string' ? p.created_at : new Date().toISOString()
         const safeUpdatedAt = typeof p.updated_at === 'string' ? p.updated_at : new Date().toISOString()
-        insertPlan.run(safePlanDate, safeNotes, safeMaterials, safeCreatedAt, safeUpdatedAt)
+        insertPlan.run(safePlanDate, encryptedNotes, safeMaterials, safeCreatedAt, safeUpdatedAt)
       }
     }
 
@@ -1248,4 +1598,225 @@ export function markReminderDelivered(reminderId: number): void {
 export function resetDeliveredRemindersForEvent(eventId: number): void {
   const d = getDatabase()
   d.prepare('UPDATE event_reminders SET is_delivered = 0, last_triggered_at = NULL WHERE event_id = ?').run(eventId)
+}
+
+// ----------------- Journal & Check-Ins (Encrypted at Rest) -----------------
+
+export interface JournalEntryRecord {
+  entry_date: string
+  check_in_type: 'morning' | 'evening'
+  gratitude: string | null
+  intention: string | null
+  reflection: string | null
+  mood: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function getJournalEntry(date: string, checkInType: 'morning' | 'evening'): JournalEntryRecord | null {
+  const d = getDatabase()
+  const row = d.prepare('SELECT * FROM journal_entries WHERE entry_date = ? AND check_in_type = ?').get(date, checkInType) as any
+  if (!row) return null
+  return {
+    ...row,
+    gratitude: row.gratitude ? decryptAtRest(row.gratitude) : null,
+    intention: row.intention ? decryptAtRest(row.intention) : null,
+    reflection: row.reflection ? decryptAtRest(row.reflection) : null
+  }
+}
+
+export function saveJournalEntry(
+  date: string,
+  checkInType: 'morning' | 'evening',
+  payload: { gratitude?: string; intention?: string; reflection?: string; mood?: string }
+): void {
+  const d = getDatabase()
+  const encGratitude = payload.gratitude ? encryptAtRest(payload.gratitude) : null
+  const encIntention = payload.intention ? encryptAtRest(payload.intention) : null
+  const encReflection = payload.reflection ? encryptAtRest(payload.reflection) : null
+  const mood = payload.mood || null
+
+  d.prepare(`
+    INSERT INTO journal_entries (entry_date, check_in_type, gratitude, intention, reflection, mood, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(entry_date, check_in_type) DO UPDATE SET
+      gratitude = excluded.gratitude,
+      intention = excluded.intention,
+      reflection = excluded.reflection,
+      mood = excluded.mood,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(date, checkInType, encGratitude, encIntention, encReflection, mood)
+}
+
+// ----------------- Weekly Reflection Report -----------------
+
+export interface WeeklyReflectionReport {
+  startDate: string
+  endDate: string
+  subjectHours: Array<{ subject: string; hours: number; minutes: number }>
+  totalTasksDone: number
+  totalStudyMinutes: number
+  bestDay: { dayName: string; date: string; minutes: number } | null
+  suggestion: string
+}
+
+export function getWeeklyReflectionReport(startDate: string, endDate: string): WeeklyReflectionReport {
+  const d = getDatabase()
+
+  const subjectRows = d.prepare(`
+    SELECT 
+      COALESCE(t.category, 'General Study') as subject,
+      SUM(s.duration_seconds) as total_seconds
+    FROM task_sessions s
+    JOIN tasks t ON s.task_id = t.id
+    WHERE substr(s.start_time, 1, 10) >= ? AND substr(s.start_time, 1, 10) <= ?
+    GROUP BY subject
+    ORDER BY total_seconds DESC
+  `).all(startDate, endDate) as Array<{ subject: string; total_seconds: number }>
+
+  let totalStudySeconds = 0
+  const subjectHours = subjectRows.map(r => {
+    totalStudySeconds += r.total_seconds
+    const mins = Math.round(r.total_seconds / 60)
+    return {
+      subject: r.subject,
+      hours: Math.floor(mins / 60),
+      minutes: mins % 60
+    }
+  })
+
+  const completedRow = d.prepare(`
+    SELECT COUNT(*) as completed_count
+    FROM tasks
+    WHERE completed = 1
+      AND (
+        (due_date >= ? AND due_date <= ?)
+        OR (scheduled_date >= ? AND scheduled_date <= ?)
+      )
+  `).get(startDate, endDate, startDate, endDate) as { completed_count: number } | undefined
+
+  const totalTasksDone = completedRow?.completed_count || 0
+
+  const dailyRows = d.prepare(`
+    SELECT 
+      substr(start_time, 1, 10) as day_date,
+      SUM(duration_seconds) as day_seconds
+    FROM task_sessions
+    WHERE substr(start_time, 1, 10) >= ? AND substr(start_time, 1, 10) <= ?
+    GROUP BY day_date
+    ORDER BY day_seconds DESC
+    LIMIT 1
+  `).all(startDate, endDate) as Array<{ day_date: string; day_seconds: number }>
+
+  let bestDay = null
+  if (dailyRows[0] && dailyRows[0].day_seconds > 0) {
+    const [y, m, day] = dailyRows[0].day_date.split('-').map(Number)
+    const dt = new Date(y, m - 1, day)
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    bestDay = {
+      date: dailyRows[0].day_date,
+      dayName: dayNames[dt.getDay()],
+      minutes: Math.round(dailyRows[0].day_seconds / 60)
+    }
+  }
+
+  let suggestion = 'You stayed consistent this week. Keep taking small steps every day!'
+  if (bestDay && bestDay.minutes > 60) {
+    suggestion = `Your focus peaked on ${bestDay.dayName} with ${Math.floor(bestDay.minutes / 60)}h ${bestDay.minutes % 60}m studied. Try replicating that daily rhythm!`
+  } else if (totalTasksDone > 5) {
+    suggestion = `Great momentum completing ${totalTasksDone} tasks this week. Remember to take restful breaks between sessions.`
+  }
+
+  return {
+    startDate,
+    endDate,
+    subjectHours,
+    totalTasksDone,
+    totalStudyMinutes: Math.round(totalStudySeconds / 60),
+    bestDay,
+    suggestion
+  }
+}
+
+// ----------------- Streaks & Encouraging Badges -----------------
+
+export interface UserStreakAndBadges {
+  currentStreakDays: number
+  totalCompletedTasks: number
+  totalStudyHours: number
+  badges: Array<{ id: string; title: string; description: string; icon: string; unlocked: boolean }>
+}
+
+export function getUserStreakAndBadges(): UserStreakAndBadges {
+  const d = getDatabase()
+  const tasksRow = d.prepare('SELECT COUNT(*) as c FROM tasks WHERE completed = 1').get() as { c: number }
+  const totalCompletedTasks = tasksRow?.c || 0
+
+  const timeRow = d.prepare('SELECT SUM(duration_seconds) as s FROM task_sessions').get() as { s: number | null }
+  const totalStudyHours = Math.round((timeRow?.s || 0) / 3600)
+
+  const activeDaysRows = d.prepare(`
+    SELECT DISTINCT substr(start_time, 1, 10) as day_date FROM task_sessions
+    UNION
+    SELECT DISTINCT due_date as day_date FROM tasks WHERE completed = 1 AND due_date IS NOT NULL
+  `).all() as Array<{ day_date: string }>
+
+  const activeDaySet = new Set(activeDaysRows.map(r => r.day_date))
+  const today = new Date()
+  let streak = 0
+  for (let i = 0; i < 60; i++) {
+    const cur = new Date(today)
+    cur.setDate(today.getDate() - i)
+    const k = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`
+    if (activeDaySet.has(k)) {
+      streak++
+    } else if (i > 0) {
+      break
+    }
+  }
+
+  const badges = [
+    {
+      id: 'fresh_start',
+      title: 'First Step',
+      description: 'Completed your first planning task or study session.',
+      icon: '🌱',
+      unlocked: totalCompletedTasks > 0 || totalStudyHours > 0
+    },
+    {
+      id: 'momentum',
+      title: 'Building Momentum',
+      description: 'Maintained 3 consecutive days of active learning.',
+      icon: '🔥',
+      unlocked: streak >= 3
+    },
+    {
+      id: 'consistency',
+      title: 'Consistency Champion',
+      description: 'Focused for 7 days in a row.',
+      icon: '🏆',
+      unlocked: streak >= 7
+    },
+    {
+      id: 'focus_master',
+      title: 'Focus Master',
+      description: 'Logged 10+ hours of dedicated study time.',
+      icon: '⏱️',
+      unlocked: totalStudyHours >= 10
+    },
+    {
+      id: 'achiever',
+      title: 'Goal Achiever',
+      description: 'Successfully checked off 20+ completed tasks.',
+      icon: '⭐',
+      unlocked: totalCompletedTasks >= 20
+    }
+  ]
+
+  return {
+    currentStreakDays: Math.max(1, streak),
+    totalCompletedTasks,
+    totalStudyHours,
+    badges
+  }
 }

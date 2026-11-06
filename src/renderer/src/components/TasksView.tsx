@@ -5,7 +5,10 @@ import {
   MoreHorizontal,
   Edit2,
   Trash2,
-  Clock
+  Clock,
+  Play,
+  Calendar,
+  Timer
 } from 'lucide-react'
 import { Task, toDateKey } from '../types'
 import { TaskModal } from './TaskModal'
@@ -17,6 +20,8 @@ interface TasksViewProps {
   onDeleteTask: (id: number) => void
   onRefreshTasks: () => Promise<void>
   onShowMessage: (msg: string) => void
+  onOpenFocusTimer?: (task: Task) => void
+  onScheduleTask?: (task: Task) => void
 }
 
 type FilterTab = 'all' | 'today' | 'tomorrow' | 'upcoming' | 'completed'
@@ -27,7 +32,9 @@ export function TasksView({
   onToggleTask,
   onDeleteTask,
   onRefreshTasks,
-  onShowMessage
+  onShowMessage,
+  onOpenFocusTimer,
+  onScheduleTask
 }: TasksViewProps) {
   const [filter, setFilter] = useState<FilterTab>('today')
   const [showTaskModal, setShowTaskModal] = useState(false)
@@ -122,9 +129,10 @@ export function TasksView({
                 key={t.id}
                 className="table-row"
                 style={{
-                  gridTemplateColumns: 'auto 1fr auto auto 36px',
+                  gridTemplateColumns: 'auto 1fr auto auto auto 36px',
                   gap: 12,
-                  position: 'relative'
+                  position: 'relative',
+                  alignItems: 'center'
                 }}
               >
                 {/* Checkbox */}
@@ -136,19 +144,33 @@ export function TasksView({
                   {t.completed ? <Check size={12} strokeWidth={3} /> : null}
                 </button>
 
-                {/* Title */}
-                <span
-                  style={{
-                    color: t.completed ? 'var(--text-muted)' : 'var(--text-primary)',
-                    textDecoration: t.completed ? 'line-through' : 'none',
-                    fontWeight: 500,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {t.title}
-                </span>
+                {/* Title and metadata */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
+                  <span
+                    style={{
+                      color: t.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                      textDecoration: t.completed ? 'line-through' : 'none',
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {t.title}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5 }}>
+                    {t.scheduled_date && (
+                      <span style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>
+                        ⏰ {t.scheduled_date === todayKey ? 'Today' : t.scheduled_date} {t.scheduled_time || ''}
+                      </span>
+                    )}
+                    {t.total_time_spent_seconds && t.total_time_spent_seconds > 0 ? (
+                      <span style={{ color: 'var(--accent-cyan)' }}>
+                        ⏱ {Math.round(t.total_time_spent_seconds / 60)}m studied
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
 
                 {/* Priority & Duration Badges */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifySelf: 'end' }}>
@@ -166,9 +188,33 @@ export function TasksView({
                 </div>
 
                 {/* Due Time */}
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', justifySelf: 'end', minWidth: 80, textAlign: 'right' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', justifySelf: 'end', minWidth: 70, textAlign: 'right' }}>
                   {timeText}
                 </span>
+
+                {/* Quick Action Buttons (Focus & Schedule) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifySelf: 'end' }}>
+                  {!t.completed && (
+                    <>
+                      <button
+                        className="win-btn"
+                        style={{ width: 24, height: 24, color: 'var(--accent-purple)' }}
+                        onClick={() => onOpenFocusTimer?.(t)}
+                        title="Start Focus Timer"
+                      >
+                        <Play size={12} style={{ fill: 'currentColor' }} />
+                      </button>
+                      <button
+                        className="win-btn"
+                        style={{ width: 24, height: 24 }}
+                        onClick={() => onScheduleTask?.(t)}
+                        title="Schedule into Slot"
+                      >
+                        <Calendar size={12} />
+                      </button>
+                    </>
+                  )}
+                </div>
 
                 {/* 3-dots Menu Button */}
                 <div style={{ position: 'relative', justifySelf: 'end' }}>
@@ -194,10 +240,34 @@ export function TasksView({
                         flexDirection: 'column',
                         gap: 2,
                         zIndex: 30,
-                        minWidth: 100,
+                        minWidth: 120,
                         boxShadow: 'var(--shadow-card)'
                       }}
                     >
+                      {!t.completed && (
+                        <>
+                          <button
+                            className="sidebar-nav-item"
+                            style={{ padding: '5px 8px', fontSize: 11.5 }}
+                            onClick={() => {
+                              setActiveMenuId(null)
+                              onOpenFocusTimer?.(t)
+                            }}
+                          >
+                            <Play size={11} /> Focus Timer
+                          </button>
+                          <button
+                            className="sidebar-nav-item"
+                            style={{ padding: '5px 8px', fontSize: 11.5 }}
+                            onClick={() => {
+                              setActiveMenuId(null)
+                              onScheduleTask?.(t)
+                            }}
+                          >
+                            <Calendar size={11} /> Schedule
+                          </button>
+                        </>
+                      )}
                       <button
                         className="sidebar-nav-item"
                         style={{ padding: '5px 8px', fontSize: 11.5 }}

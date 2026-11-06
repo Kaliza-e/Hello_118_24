@@ -64,20 +64,23 @@ Hello 118:24 is designed as a focused, calming desktop companion for school, pro
 
 ---
 
-## 🔒 Security Architecture & Hardening
+## 🔒 Security Architecture & Hardening Checklist
 
-Hello 118:24 follows the official Electron security guidelines:
+Hello 118:24 follows the official Electron security guidelines and implements production-grade defense-in-depth:
 
-- `contextIsolation: true` and `nodeIntegration: false` enforced.
-- `sandbox: true` enabled for the renderer process.
-- `webSecurity: true` and `allowRunningInsecureContent: false` strictly enforced.
-- **Content Security Policy (CSP)**: Enforced via HTTP headers and document `<meta>` tags:
-  `default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data: https://api.github.com https://github.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';`
-- **IPC Sender Authorization**: Every IPC channel validates `event.senderFrame === mainWindow.webContents.mainFrame` to prevent unauthorized message spoofing.
-- **Navigation & Window Restriction**: `setWindowOpenHandler` denies all arbitrary popup creation, and `will-navigate` blocks unexpected external navigations, routing safe URLs to the default system browser via an HTTPS allowlist.
-- **Untrusted File Hardening**: Imported documents are subject to strict file type allowlists and size limits (25MB documents, 15MB images, 10MB backups) to prevent memory exhaustion DoS.
-- **Database Safety**: All database operations use parameterized queries. Automated snapshot backups are created in `userData/backups/` prior to migrations and restore operations, with automated integrity check (`PRAGMA integrity_check`) on launch.
-- Zero external tracking or user analytics; 100% functional offline.
+### Security Checklist
+- [x] **Context Isolation & Sandboxing**: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, and `webSecurity: true`. No `remote` module.
+- [x] **Minimal Typed IPC Bridge**: Preload exposes only whitelisted APIs through `contextBridge`. Every IPC handler performs strict sender origin validation (`event.senderFrame === mainWindow.webContents.mainFrame`) and runtime schema validation with **Zod**.
+- [x] **Strict Content-Security-Policy**: Enforced via headers and document `<meta>` tags:
+  `default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' blob: data: https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';` (`unsafe-eval` completely removed).
+- [x] **Navigation & Window Restriction**: `setWindowOpenHandler` denies all arbitrary popup creation, and `will-navigate` blocks unexpected external navigations, routing safe URLs to the default system browser via an HTTPS allowlist.
+- [x] **Data at Rest Encryption**: Electron `safeStorage` (with AES-256-GCM fallback) encrypts private notes and plans at rest.
+- [x] **Salted KDF App Lock PIN**: User PIN is salted and hashed using CPU-hard `scrypt` key derivation (`scryptSync`) with constant-time verification (`crypto.timingSafeEqual`) to protect personal notes and plans.
+- [x] **Encrypted Backup & Restore**: One-click password-protected export and restore using AES-256-GCM with scrypt key derivation (`.enc` format).
+- [x] **Input & Spreadsheet Formula Sanitization**: Escapes formula prefixes (`=`, `+`, `-`, `@`, `\t`, `\r`) in CSV/XLSX exports and imports to prevent DDE/formula injection attacks.
+- [x] **Single-Instance Lock**: Prevents multiple application instances on disk.
+- [x] **Untrusted File Hardening**: Strict file size and extension checks (25MB docs, 15MB images, 10MB backups) with path traversal rejection.
+- [x] **100% Offline-First**: Zero external telemetry, zero tracking, no remote secrets stored in renderer code.
 
 ---
 

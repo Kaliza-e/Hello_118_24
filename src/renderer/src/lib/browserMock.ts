@@ -229,6 +229,90 @@ export function createBrowserMockApi(): HelloAPI {
       return count
     },
 
+    async scheduleTask(taskId: number, date: string, time?: string, durationMinutes?: number) {
+      const tasks = loadFromStorage<Task[]>(STORAGE_KEYS.TASKS, DEFAULT_TASKS)
+      const task = tasks.find(t => t.id === taskId)
+      if (task) {
+        task.scheduled_date = date
+        task.scheduled_time = time || null
+        task.scheduled_duration_minutes = durationMinutes || 30
+        saveToStorage(STORAGE_KEYS.TASKS, tasks)
+        return task
+      }
+      throw new Error(`Task ${taskId} not found`)
+    },
+
+    async getActiveTimer() {
+      return null
+    },
+
+    async startTimer(taskId: number, options?: any) {
+      const tasks = loadFromStorage<Task[]>(STORAGE_KEYS.TASKS, DEFAULT_TASKS)
+      const task = tasks.find(t => t.id === taskId)
+      return {
+        id: 1,
+        task_id: taskId,
+        status: 'running' as const,
+        start_time: new Date().toISOString(),
+        accumulated_seconds: 0,
+        is_pomodoro: options?.isPomodoro ? 1 : 0,
+        pomodoro_phase: 'work' as const,
+        pomodoro_work_duration: 1500,
+        pomodoro_break_duration: 300,
+        last_heartbeat: new Date().toISOString(),
+        task_title: task?.title,
+        total_time_spent_seconds: task?.total_time_spent_seconds || 0,
+        elapsed_seconds: 0
+      }
+    },
+
+    async pauseTimer() {
+      return null
+    },
+
+    async resumeTimer() {
+      return null
+    },
+
+    async stopTimer() {
+      return null
+    },
+
+    async markTaskDoneWithTimer(taskId: number) {
+      const tasks = loadFromStorage<Task[]>(STORAGE_KEYS.TASKS, DEFAULT_TASKS)
+      const task = tasks.find(t => t.id === taskId)
+      if (task) {
+        task.completed = 1
+        saveToStorage(STORAGE_KEYS.TASKS, tasks)
+        return { task, timeSpentSeconds: task.total_time_spent_seconds || 0 }
+      }
+      throw new Error(`Task ${taskId} not found`)
+    },
+
+    async undoMarkTaskDone(taskId: number) {
+      const tasks = loadFromStorage<Task[]>(STORAGE_KEYS.TASKS, DEFAULT_TASKS)
+      const task = tasks.find(t => t.id === taskId)
+      if (task) {
+        task.completed = 0
+        saveToStorage(STORAGE_KEYS.TASKS, tasks)
+        return task
+      }
+      throw new Error(`Task ${taskId} not found`)
+    },
+
+    async listTaskSessions(_taskId: number) {
+      return []
+    },
+
+    async getWeeklyStudyStats(_startDate: string, _endDate: string) {
+      return {
+        dailyStudiedSeconds: {},
+        totalStudiedSeconds: 0,
+        plannedMinutes: 0,
+        actualMinutes: 0
+      }
+    },
+
     async getFreeTimeSuggestion() {
       const tasks = loadFromStorage<Task[]>(STORAGE_KEYS.TASKS, DEFAULT_TASKS)
       const unfinished = tasks.filter(t => !t.completed)
@@ -460,6 +544,42 @@ export function createBrowserMockApi(): HelloAPI {
       })
     },
 
+    async exportEncryptedData(_passphrase: string) {
+      console.log('[Browser Mock] exportEncryptedData')
+      return true
+    },
+
+    async importEncryptedData(_passphrase: string) {
+      console.log('[Browser Mock] importEncryptedData')
+      return true
+    },
+
+    async isPinSet() {
+      const s = loadFromStorage(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS)
+      return s.app_lock_enabled === 'true'
+    },
+
+    async verifyPin(pin: string) {
+      const s = loadFromStorage(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS)
+      return s.app_pin === pin
+    },
+
+    async setPin(pin: string) {
+      const s = loadFromStorage(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS)
+      s.app_pin = pin
+      s.app_lock_enabled = 'true'
+      saveToStorage(STORAGE_KEYS.SETTINGS, s)
+      return true
+    },
+
+    async removePin(_currentPin: string) {
+      const s = loadFromStorage(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS)
+      s.app_pin = ''
+      s.app_lock_enabled = 'false'
+      saveToStorage(STORAGE_KEYS.SETTINGS, s)
+      return true
+    },
+
     async clearData(options) {
       if (options.tasks) saveToStorage(STORAGE_KEYS.TASKS, [])
       if (options.classes) saveToStorage(STORAGE_KEYS.CLASSES, [])
@@ -577,6 +697,47 @@ export function createBrowserMockApi(): HelloAPI {
     },
     async setEventReminders() {
       return true
+    },
+    async exportSchedulePdf() {
+      return { canceled: false, filePath: 'mock-schedule.pdf' }
+    },
+    async exportScheduleExcel() {
+      return { canceled: false, filePath: 'mock-schedule.xlsx' }
+    },
+    async exportScheduleCsv() {
+      return { canceled: false, filePath: 'mock-schedule.csv' }
+    },
+    async exportScheduleIcs() {
+      return { canceled: false, filePath: 'mock-schedule.ics' }
+    },
+
+    async getJournalEntry() {
+      return null
+    },
+    async saveJournalEntry() {
+      return
+    },
+    async getWeeklyReflectionReport(startDate: string, endDate: string) {
+      return {
+        startDate,
+        endDate,
+        subjectHours: [{ subject: 'General Study', hours: 2, minutes: 15 }],
+        totalTasksDone: 5,
+        totalStudyMinutes: 135,
+        bestDay: { dayName: 'Wednesday', date: startDate, minutes: 75 },
+        suggestion: 'Keep up the good work taking consistent steps every day!'
+      }
+    },
+    async getUserStreakAndBadges() {
+      return {
+        currentStreakDays: 3,
+        totalCompletedTasks: 8,
+        totalStudyHours: 4,
+        badges: [
+          { id: 'fresh_start', title: 'First Step', description: 'Started learning journey.', icon: '🌱', unlocked: true },
+          { id: 'momentum', title: 'Building Momentum', description: '3 days consistent.', icon: '🔥', unlocked: true }
+        ]
+      }
     },
 
     // Application Info

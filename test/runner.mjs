@@ -54,7 +54,10 @@ run({
     resolve('test/security.test.mjs'),
     resolve('test/scheduleParser.test.mjs'),
     resolve('test/scheduleDb.test.mjs'),
-    resolve('test/scheduleReminders.test.mjs')
+    resolve('test/scheduleReminders.test.mjs'),
+    resolve('test/timerAndScheduling.test.mjs'),
+    resolve('test/scheduleExportAndImport.test.mjs'),
+    resolve('test/phase4Features.test.mjs')
   ]
 })
   .on('test:fail', () => {

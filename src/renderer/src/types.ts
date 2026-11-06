@@ -9,7 +9,44 @@ export interface Task {
   category: string | null
   class_id: number | null
   estimated_minutes?: number | null
+  scheduled_date?: string | null
+  scheduled_time?: string | null
+  scheduled_duration_minutes?: number | null
+  total_time_spent_seconds?: number
   created_at: string
+}
+
+export interface TaskSession {
+  id: number
+  task_id: number
+  start_time: string
+  end_time: string | null
+  duration_seconds: number
+  is_pomodoro: number
+  created_at: string
+}
+
+export interface ActiveTimer {
+  id: number
+  task_id: number
+  status: 'idle' | 'running' | 'paused'
+  start_time: string | null
+  accumulated_seconds: number
+  is_pomodoro: number
+  pomodoro_phase: 'work' | 'break'
+  pomodoro_work_duration: number
+  pomodoro_break_duration: number
+  last_heartbeat: string | null
+  task_title?: string
+  total_time_spent_seconds?: number
+  elapsed_seconds: number
+}
+
+export interface WeeklyStudyStats {
+  dailyStudiedSeconds: Record<string, number>
+  totalStudiedSeconds: number
+  plannedMinutes: number
+  actualMinutes: number
 }
 
 export interface FreeTimeSuggestion {
@@ -178,6 +215,34 @@ export interface ScheduleEventFilters {
   isCompleted?: boolean
   reviewStatus?: string
   search?: string
+}
+
+export interface JournalEntry {
+  entry_date: string
+  check_in_type: 'morning' | 'evening'
+  gratitude: string | null
+  intention: string | null
+  reflection: string | null
+  mood: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WeeklyReflectionReport {
+  startDate: string
+  endDate: string
+  subjectHours: Array<{ subject: string; hours: number; minutes: number }>
+  totalTasksDone: number
+  totalStudyMinutes: number
+  bestDay: { dayName: string; date: string; minutes: number } | null
+  suggestion: string
+}
+
+export interface UserStreakAndBadges {
+  currentStreakDays: number
+  totalCompletedTasks: number
+  totalStudyHours: number
+  badges: Array<{ id: string; title: string; description: string; icon: string; unlocked: boolean }>
 }
 
 export type ActiveTab = 'today' | 'timetable' | 'schedules' | 'tasks' | 'plan' | 'weekly' | 'settings'

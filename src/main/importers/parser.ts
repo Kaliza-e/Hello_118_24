@@ -20,8 +20,8 @@ export const TIME_RANGE_REGEX = /\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*(?:-|â
 export const SINGLE_TIME_REGEX = /\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\b/ig
 
 // Room patterns
-export const ROOM_BRACKET_REGEX = /\[(?:Room|Rm|Hall|Lab)\s*[:#-]?\s*([a-z0-9\-]+)\]|\((?:Room|Rm|Hall|Lab)\s*[:#-]?\s*([a-z0-9\-]+)\)/i
-export const ROOM_REGEX = /\b(?:room|rm\.?|hall|lab|lecture\s*hall|auditorium|bldg\.?|building|block)\s*[:#-]?\s*([a-z0-9\-]+)/i
+export const ROOM_BRACKET_REGEX = /\[(?:Room|Rm|Hall|Lab|Class)\s*[:#-]?\s*([a-z0-9\s\-]+)\]|\((?:Room|Rm|Hall|Lab|Class)\s*[:#-]?\s*([a-z0-9\s\-]+)\)/i
+export const ROOM_REGEX = /\b(?:room|rm\.?|hall|lab|lecture\s*hall|auditorium|bldg\.?|building|block)\s*[:#-]?\s*([a-z0-9\s\-]{1,20})/i
 
 const KNOWN_SUBJECT_WORDS = new Set([
   'maths', 'mathematics', 'physics', 'chemistry', 'biology',
@@ -402,6 +402,13 @@ export function parseGridTimetable(text: string): ParsedClassCandidate[] {
         if (brMatch) {
           room = (brMatch[1] || brMatch[2]).trim()
           const rem = t.replace(brMatch[0], '').trim()
+          if (rem) filteredTokens.push(rem)
+          continue
+        }
+        const rMatch = t.match(ROOM_REGEX)
+        if (rMatch) {
+          room = rMatch[0].trim()
+          const rem = t.replace(rMatch[0], '').trim()
           if (rem) filteredTokens.push(rem)
           continue
         }

@@ -36,7 +36,21 @@ import {
   deleteSourceDocument,
   getSourceDocumentByHash,
   addSourceDocument,
-  setEventReminders
+  setEventReminders,
+  getActiveTimer,
+  startTimer,
+  pauseTimer,
+  resumeTimer,
+  stopTimer,
+  markTaskDoneWithTimer,
+  undoMarkTaskDone,
+  listTaskSessions,
+  scheduleTask,
+  getWeeklyStudyStats,
+  getJournalEntry,
+  saveJournalEntry,
+  getWeeklyReflectionReport,
+  getUserStreakAndBadges
 } from './db'
 import { parseTimetableText } from './importers/parser'
 import { ingestScheduleDocument, parseScheduleText, performNodeOcr } from './importers/schedulePipeline'
@@ -48,6 +62,27 @@ import {
   completeSuggestedTask
 } from './freeTimeEngine'
 import { initLogger, logInfo, logWarn, logError } from './logger'
+import {
+  TaskCreateSchema,
+  TaskUpdateSchema,
+  ClassCreateSchema,
+  ClassUpdateSchema,
+  DailyPlanSchema,
+  ScheduleEventCreateSchema,
+  PinSchema
+} from '../shared/schemas'
+import {
+  hashPin,
+  verifyPin,
+  exportEncryptedFile,
+  importEncryptedFile
+} from './security'
+import {
+  generateIcs,
+  generateCsv,
+  generateExcelBuffer,
+  generatePrintableHtml
+} from './scheduleExport'
 
 // Set application name without illegal filesystem characters (such as ':')
 app.name = 'Hello 11824'
@@ -355,7 +390,7 @@ export function setupSecurityHeaders(): void {
 
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
+      "script-src 'self' 'unsafe-inline' blob:",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob:",
@@ -765,7 +800,7 @@ ipcMain.handle('app:get-version', (event) => {
 const MAX_DOC_SIZE_BYTES = 25 * 1024 * 1024 // 25 MB max for PDF / Word documents
 const MAX_IMG_SIZE_BYTES = 15 * 1024 * 1024 // 15 MB max for images
 const MAX_BACKUP_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB max for JSON backups
-const ALLOWED_IMPORT_EXTENSIONS = new Set(['pdf', 'docx', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'])
+const ALLOWED_IMPORT_EXTENSIONS = new Set(['pdf', 'docx', 'xlsx', 'xls', 'csv', 'ics', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'])
 
 // Window Management
 ipcMain.handle('window:minimize', (event) => {
@@ -872,12 +907,23 @@ ipcMain.handle('tasks:list', (event, date?: string) => {
 
 ipcMain.handle('tasks:add', (event, payload) => {
   assertAuthorizedSender(event)
-  return addTask(payload)
+  const validated = TaskCreateSchema.parse(payload)
+  return addTask({
+    title: validated.title,
+    description: validated.description ?? undefined,
+    dueDate: validated.dueDate ?? undefined,
+    dueTime: validated.dueTime ?? undefined,
+    priority: validated.priority,
+    category: validated.category ?? undefined,
+    classId: validated.classId ?? undefined,
+    estimatedMinutes: validated.estimatedMinutes ?? undefined
+  })
 })
 
 ipcMain.handle('tasks:update', (event, id: number, payload) => {
   assertAuthorizedSender(event)
-  return updateTask(Number(id), payload)
+  const validated = TaskUpdateSchema.parse(payload)
+  return updateTask(Number(id), validated)
 })
 
 ipcMain.handle('tasks:toggle', (event, id: number, completed: boolean) => {
@@ -893,6 +939,79 @@ ipcMain.handle('tasks:delete', (event, id: number) => {
 ipcMain.handle('tasks:rollover', (event, fromDate: string, toDate: string) => {
   assertAuthorizedSender(event)
   return rolloverTasks(String(fromDate), String(toDate))
+})
+
+ipcMain.handle('tasks:schedule', (event, taskId: number, date: string, time?: string, durationMinutes?: number) => {
+  assertAuthorizedSender(event)
+  return scheduleTask(Number(taskId), String(date), time ? String(time) : null, durationMinutes ? Number(durationMinutes) : null)
+})
+
+// Focus View & Timer Operations
+ipcMain.handle('timer:get-active', (event) => {
+  assertAuthorizedSender(event)
+  return getActiveTimer()
+})
+
+ipcMain.handle('timer:start', (event, taskId: number, options?: { isPomodoro?: boolean; workDuration?: number; breakDuration?: number }) => {
+  assertAuthorizedSender(event)
+  return startTimer(Number(taskId), options)
+})
+
+ipcMain.handle('timer:pause', (event) => {
+  assertAuthorizedSender(event)
+  return pauseTimer()
+})
+
+ipcMain.handle('timer:resume', (event) => {
+  assertAuthorizedSender(event)
+  return resumeTimer()
+})
+
+ipcMain.handle('timer:stop', (event) => {
+  assertAuthorizedSender(event)
+  return stopTimer()
+})
+
+ipcMain.handle('timer:mark-done', (event, taskId: number) => {
+  assertAuthorizedSender(event)
+  return markTaskDoneWithTimer(Number(taskId))
+})
+
+ipcMain.handle('timer:undo-done', (event, taskId: number) => {
+  assertAuthorizedSender(event)
+  return undoMarkTaskDone(Number(taskId))
+})
+
+ipcMain.handle('timer:list-sessions', (event, taskId: number) => {
+  assertAuthorizedSender(event)
+  return listTaskSessions(Number(taskId))
+})
+
+ipcMain.handle('analytics:get-weekly-study', (event, startDate: string, endDate: string) => {
+  assertAuthorizedSender(event)
+  return getWeeklyStudyStats(String(startDate), String(endDate))
+})
+
+// Journal & Private Reflections (Encrypted at Rest)
+ipcMain.handle('journal:get', (event, date: string, checkInType: 'morning' | 'evening') => {
+  assertAuthorizedSender(event)
+  return getJournalEntry(String(date), checkInType)
+})
+
+ipcMain.handle('journal:save', (event, date: string, checkInType: 'morning' | 'evening', payload: any) => {
+  assertAuthorizedSender(event)
+  return saveJournalEntry(String(date), checkInType, payload || {})
+})
+
+// Weekly Reflection Report & Encouraging Streaks
+ipcMain.handle('analytics:get-reflection-report', (event, startDate: string, endDate: string) => {
+  assertAuthorizedSender(event)
+  return getWeeklyReflectionReport(String(startDate), String(endDate))
+})
+
+ipcMain.handle('analytics:get-streaks-and-badges', (event) => {
+  assertAuthorizedSender(event)
+  return getUserStreakAndBadges()
 })
 
 // Smart Free Time Task Suggestions
@@ -926,12 +1045,22 @@ ipcMain.handle('subjects:list', (event) => {
 
 ipcMain.handle('subjects:add', (event, payload) => {
   assertAuthorizedSender(event)
-  return addClass(payload)
+  const validated = ClassCreateSchema.parse(payload)
+  return addClass({
+    title: validated.title,
+    weekday: validated.weekday,
+    startTime: validated.startTime,
+    endTime: validated.endTime ?? undefined,
+    room: validated.room ?? undefined,
+    notes: validated.notes ?? undefined,
+    color: validated.color ?? undefined
+  })
 })
 
 ipcMain.handle('subjects:update', (event, id: number, payload) => {
   assertAuthorizedSender(event)
-  return updateClass(Number(id), payload)
+  const validated = ClassUpdateSchema.parse(payload)
+  return updateClass(Number(id), validated)
 })
 
 ipcMain.handle('subjects:delete', (event, id: number) => {
@@ -957,12 +1086,22 @@ ipcMain.handle('classes:list', (event) => {
 
 ipcMain.handle('classes:add', (event, payload) => {
   assertAuthorizedSender(event)
-  return addClass(payload)
+  const validated = ClassCreateSchema.parse(payload)
+  return addClass({
+    title: validated.title,
+    weekday: validated.weekday,
+    startTime: validated.startTime,
+    endTime: validated.endTime ?? undefined,
+    room: validated.room ?? undefined,
+    notes: validated.notes ?? undefined,
+    color: validated.color ?? undefined
+  })
 })
 
 ipcMain.handle('classes:update', (event, id: number, payload) => {
   assertAuthorizedSender(event)
-  return updateClass(Number(id), payload)
+  const validated = ClassUpdateSchema.parse(payload)
+  return updateClass(Number(id), validated)
 })
 
 ipcMain.handle('classes:delete', (event, id: number) => {
@@ -988,7 +1127,11 @@ ipcMain.handle('daily-plans:get', (event, date: string) => {
 
 ipcMain.handle('daily-plans:save', (event, date: string, payload) => {
   assertAuthorizedSender(event)
-  return saveDailyPlan(String(date), payload)
+  const validated = DailyPlanSchema.parse(payload)
+  return saveDailyPlan(String(date), {
+    notes: validated.notes ?? undefined,
+    materialsChecked: validated.materialsChecked ?? undefined
+  })
 })
 
 // Timetable Document Extraction
@@ -1093,12 +1236,13 @@ ipcMain.handle('schedules:pick-and-ingest', async (event) => {
     properties: ['openFile'],
     filters: [
       {
-        name: 'All Supported Formats (*.pdf, *.docx, *.xlsx, *.csv, *.png, *.jpg)',
-        extensions: ['pdf', 'docx', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif']
+        name: 'All Supported Formats (*.pdf, *.docx, *.xlsx, *.csv, *.ics, *.png, *.jpg)',
+        extensions: ['pdf', 'docx', 'xlsx', 'xls', 'csv', 'ics', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif']
       },
+      { name: 'iCalendar (*.ics)', extensions: ['ics'] },
+      { name: 'Spreadsheets (*.xlsx, *.csv)', extensions: ['xlsx', 'xls', 'csv'] },
       { name: 'PDF Documents (*.pdf)', extensions: ['pdf'] },
       { name: 'Word Documents (*.docx)', extensions: ['docx'] },
-      { name: 'Spreadsheets (*.xlsx, *.csv)', extensions: ['xlsx', 'xls', 'csv'] },
       { name: 'Images & Scans (*.png, *.jpg, *.jpeg)', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff'] }
     ]
   })
@@ -1248,6 +1392,111 @@ ipcMain.handle('schedules:set-reminders', (event, eventId: number, reminders: an
   return true
 })
 
+// Schedule Exports (PDF, XLSX, CSV, ICS)
+ipcMain.handle('schedules:export-pdf', async (event, customEvents?: any[]) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
+
+  const events = customEvents && customEvents.length > 0 ? customEvents : listScheduleEvents({})
+  const saveResult = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Schedule to Printable PDF',
+    defaultPath: `hello11824-schedule-${new Date().toISOString().slice(0, 10)}.pdf`,
+    filters: [{ name: 'PDF Documents (*.pdf)', extensions: ['pdf'] }]
+  })
+
+  if (saveResult.canceled || !saveResult.filePath) {
+    return { canceled: true }
+  }
+
+  const html = generatePrintableHtml(events)
+
+  const printWin = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true
+    }
+  })
+
+  try {
+    await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    const pdfBuffer = await printWin.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      margins: {
+        top: 0.4,
+        bottom: 0.4,
+        left: 0.4,
+        right: 0.4
+      }
+    })
+    writeFileSync(saveResult.filePath, pdfBuffer)
+    return { canceled: false, filePath: saveResult.filePath }
+  } finally {
+    printWin.destroy()
+  }
+})
+
+ipcMain.handle('schedules:export-xlsx', async (event, customEvents?: any[]) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
+
+  const events = customEvents && customEvents.length > 0 ? customEvents : listScheduleEvents({})
+  const saveResult = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Schedule to Excel Spreadsheet',
+    defaultPath: `hello11824-schedule-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    filters: [{ name: 'Excel Workbook (*.xlsx)', extensions: ['xlsx'] }]
+  })
+
+  if (saveResult.canceled || !saveResult.filePath) {
+    return { canceled: true }
+  }
+
+  const buf = generateExcelBuffer(events)
+  writeFileSync(saveResult.filePath, buf)
+  return { canceled: false, filePath: saveResult.filePath }
+})
+
+ipcMain.handle('schedules:export-csv', async (event, customEvents?: any[]) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
+
+  const events = customEvents && customEvents.length > 0 ? customEvents : listScheduleEvents({})
+  const saveResult = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Schedule to CSV',
+    defaultPath: `hello11824-schedule-${new Date().toISOString().slice(0, 10)}.csv`,
+    filters: [{ name: 'CSV File (*.csv)', extensions: ['csv'] }]
+  })
+
+  if (saveResult.canceled || !saveResult.filePath) {
+    return { canceled: true }
+  }
+
+  const csv = generateCsv(events)
+  writeFileSync(saveResult.filePath, csv, 'utf-8')
+  return { canceled: false, filePath: saveResult.filePath }
+})
+
+ipcMain.handle('schedules:export-ics', async (event, customEvents?: any[]) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true }
+
+  const events = customEvents && customEvents.length > 0 ? customEvents : listScheduleEvents({})
+  const saveResult = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Schedule to iCalendar (.ics)',
+    defaultPath: `hello11824-schedule-${new Date().toISOString().slice(0, 10)}.ics`,
+    filters: [{ name: 'iCalendar (*.ics)', extensions: ['ics'] }]
+  })
+
+  if (saveResult.canceled || !saveResult.filePath) {
+    return { canceled: true }
+  }
+
+  const ics = generateIcs(events)
+  writeFileSync(saveResult.filePath, ics, 'utf-8')
+  return { canceled: false, filePath: saveResult.filePath }
+})
+
 // Data Backup & Export / Import
 ipcMain.handle('data:export', async (event) => {
   assertAuthorizedSender(event)
@@ -1299,4 +1548,91 @@ ipcMain.handle('data:clear', (event, options: { tasks?: boolean; classes?: boole
   assertAuthorizedSender(event)
   clearAllData(options)
   return true
+})
+
+// PIN Lock Security
+ipcMain.handle('pin:is-set', (event) => {
+  assertAuthorizedSender(event)
+  const hash = getSetting('app_pin_hash')
+  const salt = getSetting('app_pin_salt')
+  return Boolean(hash && salt && getSetting('app_lock_enabled') === 'true')
+})
+
+ipcMain.handle('pin:verify', (event, pin: string) => {
+  assertAuthorizedSender(event)
+  const storedHash = getSetting('app_pin_hash')
+  const storedSalt = getSetting('app_pin_salt')
+  if (!storedHash || !storedSalt || getSetting('app_lock_enabled') !== 'true') {
+    return true // No active PIN set
+  }
+  return verifyPin(String(pin), storedHash, storedSalt)
+})
+
+ipcMain.handle('pin:set', (event, pin: string) => {
+  assertAuthorizedSender(event)
+  const validatedPin = PinSchema.parse(String(pin))
+  const { hashHex, saltHex } = hashPin(validatedPin)
+  setSetting('app_pin_hash', hashHex)
+  setSetting('app_pin_salt', saltHex)
+  setSetting('app_lock_enabled', 'true')
+  return true
+})
+
+ipcMain.handle('pin:remove', (event, currentPin: string) => {
+  assertAuthorizedSender(event)
+  const storedHash = getSetting('app_pin_hash')
+  const storedSalt = getSetting('app_pin_salt')
+  if (storedHash && storedSalt) {
+    if (!verifyPin(String(currentPin), storedHash, storedSalt)) {
+      throw new Error('Incorrect PIN.')
+    }
+  }
+  setSetting('app_pin_hash', '')
+  setSetting('app_pin_salt', '')
+  setSetting('app_lock_enabled', 'false')
+  return true
+})
+
+// Encrypted Backup Export / Import
+ipcMain.handle('data:export-encrypted', async (event, passphrase: string) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  if (!passphrase || typeof passphrase !== 'string' || passphrase.length < 4) {
+    throw new Error('Passphrase must be at least 4 characters')
+  }
+
+  const data = exportAllData()
+  const saveResult = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export Encrypted Backup',
+    defaultPath: `hello11824-encrypted-${new Date().toISOString().slice(0, 10)}.enc`,
+    filters: [{ name: 'Encrypted Backup (*.enc)', extensions: ['enc'] }]
+  })
+
+  if (saveResult.canceled || !saveResult.filePath) {
+    return false
+  }
+
+  exportEncryptedFile(data, passphrase, saveResult.filePath)
+  return true
+})
+
+ipcMain.handle('data:import-encrypted', async (event, passphrase: string) => {
+  assertAuthorizedSender(event)
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  if (!passphrase || typeof passphrase !== 'string') {
+    throw new Error('Passphrase is required to restore encrypted backup')
+  }
+
+  const openResult = await dialog.showOpenDialog(mainWindow, {
+    title: 'Restore Encrypted Backup',
+    properties: ['openFile'],
+    filters: [{ name: 'Encrypted Backup (*.enc)', extensions: ['enc'] }]
+  })
+
+  if (openResult.canceled || !openResult.filePaths[0]) {
+    return false
+  }
+
+  const data = importEncryptedFile(openResult.filePaths[0], passphrase)
+  return importAllData(data)
 })

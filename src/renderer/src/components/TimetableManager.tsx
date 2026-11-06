@@ -43,6 +43,16 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
   const [deletingClass, setDeletingClass] = useState<ClassItem | null>(null)
   const [undoRecord, setUndoRecord] = useState<DeletedClassUndoRecord | null>(null)
   const [lastImportInfo, setLastImportInfo] = useState<string>('Ready • Review and customize your weekly schedule')
+  const [inlineEditingRoomId, setInlineEditingRoomId] = useState<number | null>(null)
+  const [inlineRoomText, setInlineRoomText] = useState('')
+
+  async function handleSaveInlineRoom(classId: number) {
+    setInlineEditingRoomId(null)
+    const trimmed = inlineRoomText.trim()
+    await window.hello11824.updateClass(classId, { room: trimmed || null })
+    await onRefreshClasses()
+    onShowMessage(trimmed ? `Updated room to "${trimmed}"` : 'Cleared room')
+  }
 
   // Classes for selected day sorted by start_time
   const dayClasses = useMemo(() => {
@@ -236,9 +246,41 @@ export function TimetableManager({ classes, onRefreshClasses, onShowMessage }: T
                 <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{c.title}</span>
               </div>
 
-              <span style={{ color: 'var(--text-secondary)', fontSize: 11.5 }}>
-                {c.room || '—'}
-              </span>
+              {inlineEditingRoomId === c.id ? (
+                <input
+                  autoFocus
+                  className="input-field"
+                  style={{ padding: '2px 8px', fontSize: 11.5, height: 26, width: '90%' }}
+                  value={inlineRoomText}
+                  onChange={e => setInlineRoomText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleSaveInlineRoom(c.id)
+                    if (e.key === 'Escape') setInlineEditingRoomId(null)
+                  }}
+                  onBlur={() => handleSaveInlineRoom(c.id)}
+                  placeholder="e.g. Lab 2"
+                />
+              ) : (
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+                  onClick={() => {
+                    setInlineEditingRoomId(c.id)
+                    setInlineRoomText(c.room || '')
+                  }}
+                  title="Click to edit room"
+                >
+                  <span
+                    style={{
+                      color: c.room ? 'var(--text-primary)' : 'var(--text-muted)',
+                      fontSize: 11.5,
+                      fontWeight: c.room ? 500 : 400
+                    }}
+                  >
+                    {c.room || '— (set room)'}
+                  </span>
+                  <Edit2 size={10} color="var(--text-muted)" style={{ opacity: 0.6 }} />
+                </div>
+              )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                 <button

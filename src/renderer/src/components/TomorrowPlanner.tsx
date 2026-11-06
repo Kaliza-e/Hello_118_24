@@ -4,7 +4,9 @@ import {
   Plus,
   Check,
   Save,
-  Sunset
+  Sunset,
+  Play,
+  Clock
 } from 'lucide-react'
 import { Task, ClassItem, toDateKey } from '../types'
 import { TaskModal } from './TaskModal'
@@ -17,6 +19,8 @@ interface TomorrowPlannerProps {
   onToggleTask: (task: Task) => void
   onDeleteTask: (id: number) => void
   onShowMessage: (msg: string) => void
+  onOpenFocusTimer?: (task: Task) => void
+  onScheduleTask?: (task: Task) => void
 }
 
 const DOT_COLORS = [
@@ -34,7 +38,9 @@ export function TomorrowPlanner({
   onRefreshTasks,
   onToggleTask,
   onDeleteTask,
-  onShowMessage
+  onShowMessage,
+  onOpenFocusTimer,
+  onScheduleTask
 }: TomorrowPlannerProps) {
   const tomorrow = useMemo(() => {
     const d = new Date(today)
@@ -71,15 +77,21 @@ export function TomorrowPlanner({
       .sort((a, b) => a.start_time.localeCompare(b.start_time))
   }, [classes, tomorrowWeekday])
 
-  // Tomorrow's tasks
+  // Tomorrow's tasks (due tomorrow OR scheduled for tomorrow)
   const tomorrowsTasks = useMemo(() => {
-    return tasks.filter(t => t.due_date === tomorrowKey)
+    const map = new Map<number, Task>()
+    tasks.forEach(t => {
+      if (t.due_date === tomorrowKey || t.scheduled_date === tomorrowKey) {
+        map.set(t.id, t)
+      }
+    })
+    return Array.from(map.values())
   }, [tasks, tomorrowKey])
 
   // Top priorities (tasks due tomorrow marked high priority, or any active high priority tasks)
   const topPriorities = useMemo(() => {
-    return tasks.filter(t => t.due_date === tomorrowKey && t.priority === 'high')
-  }, [tasks, tomorrowKey])
+    return tomorrowsTasks.filter(t => t.priority === 'high')
+  }, [tomorrowsTasks])
 
   async function handleSavePlan() {
     setIsSaving(true)
@@ -130,8 +142,8 @@ export function TomorrowPlanner({
                   <div key={c.id || i} className="class-mini-row subject-mini-row" style={{ padding: '4px 0' }}>
                     <span className="class-mini-time subject-mini-time">{c.start_time}</span>
                     <span className="class-dot subject-dot" style={{ background: DOT_COLORS[i % DOT_COLORS.length] }} />
-                    <span className="class-mini-subject subject-mini-title">{c.title}</span>
-                    {c.room && <span className="class-mini-room subject-mini-room">{c.room}</span>}
+                    <span className="class-mini-subject subject-mini-title" title={c.title}>{c.title}</span>
+                    {c.room && <span className="class-mini-room subject-mini-room" title={`Room: ${c.room}`}>{c.room}</span>}
                     <ChevronRight size={13} color="var(--text-muted)" />
                   </div>
                 ))}
@@ -156,7 +168,7 @@ export function TomorrowPlanner({
                   const priorityLabel = t.priority === 'high' ? 'High' : t.priority === 'low' ? 'Low' : 'Medium'
 
                   return (
-                    <div key={t.id} className="task-mini-item">
+                    <div key={t.id} className="task-mini-item" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <button
                         className={`task-checkbox-btn ${t.completed ? 'checked' : ''}`}
                         onClick={() => onToggleTask(t)}
@@ -165,15 +177,43 @@ export function TomorrowPlanner({
                         {t.completed ? <Check size={12} strokeWidth={3} /> : null}
                       </button>
 
-                      <div className="task-item-content">
+                      <div className="task-item-content" style={{ flex: 1, minWidth: 0 }}>
                         <span className={`task-item-title ${t.completed ? 'strikethrough' : ''}`}>
                           {t.title}
                         </span>
+                        {t.scheduled_time && (
+                          <div style={{ fontSize: 10, color: 'var(--accent-purple)', fontWeight: 600 }}>
+                            ⏰ {t.scheduled_time} ({t.scheduled_duration_minutes || 30}m)
+                          </div>
+                        )}
                       </div>
 
                       <span className={`priority-badge-pill ${priorityClass}`}>
                         {priorityLabel}
                       </span>
+
+                      {!t.completed && (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button
+                            type="button"
+                            className="btn-secondary-pill"
+                            style={{ padding: '3px 6px', fontSize: 10, height: 22 }}
+                            onClick={() => onOpenFocusTimer?.(t)}
+                            title="Start Focus Timer"
+                          >
+                            <Play size={10} style={{ fill: 'currentColor' }} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary-pill"
+                            style={{ padding: '3px 6px', fontSize: 10, height: 22 }}
+                            onClick={() => onScheduleTask?.(t)}
+                            title="Schedule Time Slot"
+                          >
+                            <Clock size={10} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}

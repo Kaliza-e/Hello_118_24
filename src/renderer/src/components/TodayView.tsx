@@ -6,10 +6,14 @@ import {
   Plus,
   ExternalLink,
   Sparkles,
-  Heart
+  Heart,
+  Play,
+  Timer
 } from 'lucide-react'
 import { Task, ClassItem, ActiveTab, toDateKey } from '../types'
 import { FreeTimeBanner } from './FreeTimeBanner'
+import { FaithJournalCard } from './FaithJournalCard'
+import { ExamCountdownCard } from './ExamCountdownCard'
 
 interface TodayViewProps {
   today: Date
@@ -24,6 +28,9 @@ interface TodayViewProps {
   onOpenTaskDetails?: (task: Task) => void
   onRefreshTasks?: () => Promise<void>
   onShowMessage?: (msg: string) => void
+  onOpenFocusTimer?: (task: Task) => void
+  onScheduleTask?: (task: Task) => void
+  onOpenRevisionPlan?: (examSubject: string, examDate: string) => void
 }
 
 const DOT_COLORS = [
@@ -47,7 +54,10 @@ export function TodayView({
   onExpandApp,
   onOpenTaskDetails,
   onRefreshTasks,
-  onShowMessage
+  onShowMessage,
+  onOpenFocusTimer,
+  onScheduleTask,
+  onOpenRevisionPlan
 }: TodayViewProps) {
   const todayKey = toDateKey(today)
   const todayWeekday = today.getDay()
@@ -69,11 +79,13 @@ export function TodayView({
     return `${hours}:${minutes}`
   }, [today])
 
-  // Week number in year
+  // Week number in year (ISO 8601 standard)
   const weekNumber = useMemo(() => {
-    const firstDayOfYear = new Date(today.getFullYear(), 0, 1)
-    const pastDaysOfYear = (today.getTime() - firstDayOfYear.getTime()) / 86400000
-    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7)
+    const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+    const dayNum = d.getUTCDay() || 7
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
   }, [today])
 
   // Greeting by time of day
@@ -110,9 +122,9 @@ export function TodayView({
     return todaysSubjects[0] || null
   }, [todaysSubjects, today])
 
-  // Today's tasks (due today or unassigned date)
+  // Today's tasks (due today, scheduled today, or unassigned date)
   const todaysTasks = useMemo(() => {
-    return tasks.filter(t => t.due_date === todayKey || t.due_date === null)
+    return tasks.filter(t => t.due_date === todayKey || t.scheduled_date === todayKey || t.due_date === null)
   }, [tasks, todayKey])
 
   const completedCount = todaysTasks.filter(t => Boolean(t.completed)).length
@@ -136,6 +148,7 @@ export function TodayView({
           onOpenCreateTask={onOpenTaskModal}
           onRefreshTasks={onRefreshTasks || (async () => {})}
           onShowMessage={onShowMessage || (() => {})}
+          onOpenFocusTimer={onOpenFocusTimer}
         />
 
         {/* Next Class Box */}
@@ -150,8 +163,8 @@ export function TodayView({
               <div className="next-class-icon" style={{ width: 28, height: 28 }}>
                 <BookOpen size={14} />
               </div>
-              <div className="next-class-info">
-                <span className="next-class-title">{nextSubject.title}</span>
+              <div className="next-class-info" style={{ flex: 1, minWidth: 0 }}>
+                <span className="next-class-title" title={nextSubject.title}>{nextSubject.title}</span>
                 <span className="next-class-time">
                   {nextSubject.start_time} {nextSubject.end_time ? `– ${nextSubject.end_time}` : ''}
                   {nextSubject.room ? ` • ${nextSubject.room}` : ''}
@@ -273,6 +286,17 @@ export function TodayView({
         </div>
       </div>
 
+      {/* Faith & Encouragement Daily Scripture & Private Journal */}
+      <FaithJournalCard today={today} onShowMessage={onShowMessage || (() => {})} />
+
+      {/* Exam Countdown & Workload Cluster Warning */}
+      <ExamCountdownCard
+        today={today}
+        tasks={tasks}
+        onNavigateSchedules={() => onNavigate('schedules')}
+        onOpenRevisionPlan={onOpenRevisionPlan}
+      />
+
       {/* Smart Free-Time Suggestion Banner */}
       <FreeTimeBanner
         today={today}
@@ -281,6 +305,7 @@ export function TodayView({
         onOpenCreateTask={onOpenTaskModal}
         onRefreshTasks={onRefreshTasks || (async () => {})}
         onShowMessage={onShowMessage || (() => {})}
+        onOpenFocusTimer={onOpenFocusTimer}
       />
 
       {/* Next Class Hero Card */}
@@ -307,8 +332,8 @@ export function TodayView({
               <BookOpen size={16} />
             </div>
 
-            <div className="next-class-info" style={{ flex: 1 }}>
-              <span className="next-class-title" style={{ fontSize: 14 }}>{nextSubject.title}</span>
+            <div className="next-class-info" style={{ flex: 1, minWidth: 0 }}>
+              <span className="next-class-title" style={{ fontSize: 14 }} title={nextSubject.title}>{nextSubject.title}</span>
               <span className="next-class-time" style={{ fontSize: 12 }}>
                 {nextSubject.start_time} {nextSubject.end_time ? `– ${nextSubject.end_time}` : ''}
                 {nextSubject.room ? ` • ${nextSubject.room}` : ''}
@@ -365,24 +390,64 @@ export function TodayView({
                 <div
                   key={c.id || i}
                   className="class-mini-row"
-                  style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-card-inner)' }}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--bg-card-inner)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    minWidth: 0,
+                    cursor: 'pointer'
+                  }}
+                  title={`${c.title}${c.room ? ` (Room: ${c.room})` : ''} • ${c.start_time}${c.end_time ? ` – ${c.end_time}` : ''}`}
+                  onClick={() => onNavigate('timetable')}
                 >
-                  <span className="class-mini-time" style={{ width: 85, fontSize: 11.5 }}>
+                  <span className="class-mini-time" style={{ minWidth: 80, fontSize: 11.5, flexShrink: 0 }}>
                     {c.start_time} {c.end_time ? `– ${c.end_time}` : ''}
                   </span>
                   <span
                     className="class-dot"
-                    style={{ background: DOT_COLORS[i % DOT_COLORS.length] }}
+                    style={{ background: DOT_COLORS[i % DOT_COLORS.length], flexShrink: 0 }}
                   />
-                  <span className="class-mini-subject" style={{ fontSize: 12, fontWeight: 600 }}>
+                  <span
+                    className="class-mini-subject"
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title={c.title}
+                  >
                     {c.title}
                   </span>
                   {c.room && (
-                    <span className="class-mini-room" style={{ fontSize: 11 }}>
+                    <span
+                      className="class-mini-room"
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        padding: '2px 7px',
+                        borderRadius: 4,
+                        background: 'rgba(124, 58, 237, 0.15)',
+                        color: 'var(--accent-purple)',
+                        border: '1px solid rgba(124, 58, 237, 0.25)',
+                        flexShrink: 0,
+                        maxWidth: 90,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title={`Room: ${c.room}`}
+                    >
                       {c.room}
                     </span>
                   )}
-                  <ChevronRight size={13} color="var(--text-muted)" style={{ marginLeft: 'auto' }} />
+                  <ChevronRight size={13} color="var(--text-muted)" style={{ marginLeft: 4, flexShrink: 0 }} />
                 </div>
               ))}
             </div>
@@ -420,7 +485,7 @@ export function TodayView({
                   <div
                     key={t.id}
                     className="task-mini-item"
-                    style={{ padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-card-inner)' }}
+                    style={{ padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-card-inner)', display: 'flex', alignItems: 'center', gap: 8 }}
                   >
                     <button
                       type="button"
@@ -431,16 +496,38 @@ export function TodayView({
                       {t.completed ? <Check size={11} strokeWidth={3} /> : null}
                     </button>
 
-                    <div className="task-item-content">
+                    <div className="task-item-content" style={{ flex: 1, minWidth: 0 }}>
                       <span className={`task-item-title ${t.completed ? 'strikethrough' : ''}`} style={{ fontSize: 12 }}>
                         {t.title}
                       </span>
                       <div className="task-item-submeta">
-                        <span>Today</span>
+                        {t.scheduled_time ? (
+                          <span style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>⏰ {t.scheduled_time}</span>
+                        ) : (
+                          <span>Today</span>
+                        )}
                         <span>•</span>
                         <span className={`priority-badge-pill ${priorityClass}`}>{priorityLabel}</span>
+                        {t.total_time_spent_seconds && t.total_time_spent_seconds > 0 ? (
+                          <>
+                            <span>•</span>
+                            <span style={{ color: 'var(--accent-cyan)' }}>⏱ {Math.round(t.total_time_spent_seconds / 60)}m</span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
+
+                    {!t.completed && (
+                      <button
+                        type="button"
+                        className="btn-secondary-pill"
+                        style={{ padding: '3px 8px', fontSize: 10.5, flexShrink: 0, height: 24, gap: 4 }}
+                        onClick={() => onOpenFocusTimer?.(t)}
+                        title="Start Focus Timer for this task"
+                      >
+                        <Play size={10} style={{ fill: 'currentColor' }} /> Focus
+                      </button>
+                    )}
                   </div>
                 )
               })}

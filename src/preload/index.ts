@@ -90,6 +90,20 @@ const api = {
   toggleTask: (id: number, completed: boolean) => ipcRenderer.invoke('tasks:toggle', id, completed),
   deleteTask: (id: number) => ipcRenderer.invoke('tasks:delete', id),
   rolloverTasks: (fromDate: string, toDate: string) => ipcRenderer.invoke('tasks:rollover', fromDate, toDate),
+  scheduleTask: (taskId: number, date: string, time?: string, durationMinutes?: number) =>
+    ipcRenderer.invoke('tasks:schedule', taskId, date, time, durationMinutes),
+
+  // Focus View & Timer
+  getActiveTimer: () => ipcRenderer.invoke('timer:get-active'),
+  startTimer: (taskId: number, options?: { isPomodoro?: boolean; workDuration?: number; breakDuration?: number }) =>
+    ipcRenderer.invoke('timer:start', taskId, options),
+  pauseTimer: () => ipcRenderer.invoke('timer:pause'),
+  resumeTimer: () => ipcRenderer.invoke('timer:resume'),
+  stopTimer: () => ipcRenderer.invoke('timer:stop'),
+  markTaskDoneWithTimer: (taskId: number) => ipcRenderer.invoke('timer:mark-done', taskId),
+  undoMarkTaskDone: (taskId: number) => ipcRenderer.invoke('timer:undo-done', taskId),
+  listTaskSessions: (taskId: number) => ipcRenderer.invoke('timer:list-sessions', taskId),
+  getWeeklyStudyStats: (startDate: string, endDate: string) => ipcRenderer.invoke('analytics:get-weekly-study', startDate, endDate),
 
   // Smart Free Time Task Suggestions
   getFreeTimeSuggestion: () => ipcRenderer.invoke('free-time:get-suggestion'),
@@ -123,7 +137,15 @@ const api = {
   // Backup & Storage
   exportData: () => ipcRenderer.invoke('data:export'),
   importData: () => ipcRenderer.invoke('data:import'),
+  exportEncryptedData: (passphrase: string) => ipcRenderer.invoke('data:export-encrypted', passphrase),
+  importEncryptedData: (passphrase: string) => ipcRenderer.invoke('data:import-encrypted', passphrase),
   clearData: (options: { tasks?: boolean; classes?: boolean; plans?: boolean; schedules?: boolean }) => ipcRenderer.invoke('data:clear', options),
+
+  // PIN Lock
+  isPinSet: () => ipcRenderer.invoke('pin:is-set'),
+  verifyPin: (pin: string) => ipcRenderer.invoke('pin:verify', pin),
+  setPin: (pin: string) => ipcRenderer.invoke('pin:set', pin),
+  removePin: (currentPin: string) => ipcRenderer.invoke('pin:remove', currentPin),
 
   // Schedules & Ingestion
   pickAndIngestSchedule: () => ipcRenderer.invoke('schedules:pick-and-ingest'),
@@ -139,6 +161,16 @@ const api = {
   listSourceDocuments: () => ipcRenderer.invoke('schedules:list-source-docs'),
   deleteSourceDocument: (id: number, deleteEvents?: boolean) => ipcRenderer.invoke('schedules:delete-source-doc', id, deleteEvents),
   setEventReminders: (eventId: number, reminders: any[]) => ipcRenderer.invoke('schedules:set-reminders', eventId, reminders),
+  exportSchedulePdf: (customEvents?: any[]) => ipcRenderer.invoke('schedules:export-pdf', customEvents),
+  exportScheduleExcel: (customEvents?: any[]) => ipcRenderer.invoke('schedules:export-xlsx', customEvents),
+  exportScheduleCsv: (customEvents?: any[]) => ipcRenderer.invoke('schedules:export-csv', customEvents),
+  exportScheduleIcs: (customEvents?: any[]) => ipcRenderer.invoke('schedules:export-ics', customEvents),
+
+  // Journal & Reflections
+  getJournalEntry: (date: string, type: 'morning' | 'evening') => ipcRenderer.invoke('journal:get', date, type),
+  saveJournalEntry: (date: string, type: 'morning' | 'evening', payload: any) => ipcRenderer.invoke('journal:save', date, type, payload),
+  getWeeklyReflectionReport: (startDate: string, endDate: string) => ipcRenderer.invoke('analytics:get-reflection-report', startDate, endDate),
+  getUserStreakAndBadges: () => ipcRenderer.invoke('analytics:get-streaks-and-badges'),
 
   // Application Info
   getAppVersion: () => ipcRenderer.invoke('app:get-version')

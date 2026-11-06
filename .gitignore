@@ -5,3 +5,8 @@ dist/
 *.log
 *.traineddata
 .DS_Store
+.env
+.env.*
+*.enc
+*.key
+

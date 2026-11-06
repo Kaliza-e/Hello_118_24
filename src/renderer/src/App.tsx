@@ -21,6 +21,9 @@ import { WeeklyOverview } from './components/WeeklyOverview'
 import { SettingsView } from './components/SettingsView'
 import { TaskModal } from './components/TaskModal'
 import { SubjectModal } from './components/SubjectModal'
+import { FocusViewModal } from './components/FocusViewModal'
+import { ScheduleTaskModal } from './components/ScheduleTaskModal'
+import { ScheduleCreatorModal } from './components/ScheduleCreatorModal'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('today')
@@ -32,10 +35,25 @@ export default function App() {
   const [message, setMessage] = useState('')
   const [today, setToday] = useState(new Date())
 
-  // Modals
+  // Modals & Active Focus
   const [showGlobalTaskModal, setShowGlobalTaskModal] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showGlobalClassModal, setShowGlobalClassModal] = useState(false)
+  const [focusTask, setFocusTask] = useState<Task | null>(null)
+  const [schedulingTask, setSchedulingTask] = useState<Task | null>(null)
+  const [scheduleCreatorParams, setScheduleCreatorParams] = useState<{
+    isOpen: boolean
+    template?: 'study_plan' | 'exam_prep' | 'weekly_plan' | 'custom'
+    subject?: string
+    date?: string
+  }>({ isOpen: false })
+
+  // 60-Second Undo Toast State
+  const [undoTask, setUndoTask] = useState<{
+    task: Task
+    timeSpentSeconds: number
+    timerId: any
+  } | null>(null)
 
   // Dynamic live clock ticker
   useEffect(() => {
@@ -183,6 +201,50 @@ export default function App() {
     [refreshClasses]
   )
 
+  const handleScheduleTaskSave = useCallback(
+    async (taskId: number, date: string, time?: string, durationMinutes?: number) => {
+      await window.hello11824.scheduleTask(taskId, date, time, durationMinutes)
+      setSchedulingTask(null)
+      await refreshTasks()
+      setMessage('Task scheduled into timetable slot.')
+    },
+    [refreshTasks]
+  )
+
+  const handleTaskCompleted = useCallback(
+    async (task: Task, timeSpentSeconds: number) => {
+      await refreshTasks()
+      if (undoTask?.timerId) {
+        clearTimeout(undoTask.timerId)
+      }
+      const timerId = setTimeout(() => {
+        setUndoTask(null)
+      }, 60_000)
+      setUndoTask({ task, timeSpentSeconds, timerId })
+      const mins = Math.round(timeSpentSeconds / 60)
+      setMessage(`Completed "${task.title}" (${mins}m studied).`)
+    },
+    [refreshTasks, undoTask]
+  )
+
+  const handleUndoDone = useCallback(async () => {
+    if (!undoTask) return
+    if (undoTask.timerId) clearTimeout(undoTask.timerId)
+    await window.hello11824.undoMarkTaskDone(undoTask.task.id)
+    await refreshTasks()
+    setMessage(`Restored "${undoTask.task.title}" to active tasks.`)
+    setUndoTask(null)
+  }, [undoTask, refreshTasks])
+
+  function handleOpenRevisionPlan(examSubject: string, examDate: string) {
+    setScheduleCreatorParams({
+      isOpen: true,
+      template: 'exam_prep',
+      subject: examSubject,
+      date: examDate
+    })
+  }
+
   const isCompactMode = widgetMode === 'compact'
 
   return (
@@ -201,6 +263,32 @@ export default function App() {
       {isCompactMode ? (
         // ================= COMPACT FLOATING WIDGET VIEW =================
         <div className="widget-body-compact">
+          {undoTask && (
+            <div
+              style={{
+                background: 'rgba(124, 58, 237, 0.2)',
+                border: '1px solid var(--accent-purple)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '6px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: 11.5,
+                color: 'var(--text-primary)'
+              }}
+            >
+              <span>Done: <strong>{undoTask.task.title}</strong></span>
+              <button
+                type="button"
+                className="btn-primary-pill"
+                style={{ padding: '2px 8px', fontSize: 10.5, background: 'var(--accent-purple-btn)' }}
+                onClick={handleUndoDone}
+              >
+                Undo
+              </button>
+            </div>
+          )}
+
           {message && (
             <div
               style={{
@@ -245,6 +333,9 @@ export default function App() {
             onOpenTaskDetails={handleOpenTaskForEdit}
             onRefreshTasks={refreshTasks}
             onShowMessage={setMessage}
+            onOpenFocusTimer={task => setFocusTask(task)}
+            onScheduleTask={task => setSchedulingTask(task)}
+            onOpenRevisionPlan={handleOpenRevisionPlan}
           />
         </div>
       ) : (
@@ -331,6 +422,40 @@ export default function App() {
 
           {/* Right Main Content */}
           <main className="dashboard-main-area">
+            {undoTask && (
+              <div
+                style={{
+                  background: 'rgba(124, 58, 237, 0.2)',
+                  border: '1px solid var(--accent-purple)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '7px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: 12,
+                  color: 'var(--text-primary)',
+                  boxShadow: '0 2px 10px rgba(124, 58, 237, 0.25)'
+                }}
+              >
+                <span>
+                  Marked as done: <strong>{undoTask.task.title}</strong>
+                </span>
+                <button
+                  type="button"
+                  className="btn-primary-pill"
+                  style={{
+                    padding: '3px 12px',
+                    fontSize: 11,
+                    background: 'var(--accent-purple-btn)',
+                    cursor: 'pointer'
+                  }}
+                  onClick={handleUndoDone}
+                >
+                  Undo (60s)
+                </button>
+              </div>
+            )}
+
             {message && (
               <div
                 style={{
@@ -372,6 +497,9 @@ export default function App() {
                 onOpenTaskDetails={handleOpenTaskForEdit}
                 onRefreshTasks={refreshTasks}
                 onShowMessage={setMessage}
+                onOpenFocusTimer={task => setFocusTask(task)}
+                onScheduleTask={task => setSchedulingTask(task)}
+                onOpenRevisionPlan={handleOpenRevisionPlan}
               />
             )}
 
@@ -395,6 +523,8 @@ export default function App() {
                 onDeleteTask={handleDeleteTask}
                 onRefreshTasks={refreshTasks}
                 onShowMessage={setMessage}
+                onOpenFocusTimer={task => setFocusTask(task)}
+                onScheduleTask={task => setSchedulingTask(task)}
               />
             )}
 
@@ -407,6 +537,8 @@ export default function App() {
                 onToggleTask={handleToggleTask}
                 onDeleteTask={handleDeleteTask}
                 onShowMessage={setMessage}
+                onOpenFocusTimer={task => setFocusTask(task)}
+                onScheduleTask={task => setSchedulingTask(task)}
               />
             )}
 
@@ -417,6 +549,8 @@ export default function App() {
                 tasks={tasks}
                 onNavigatePlan={() => setActiveTab('plan')}
                 onOpenTaskModal={() => setShowGlobalTaskModal(true)}
+                onOpenFocusTimer={task => setFocusTask(task)}
+                onScheduleTask={task => setSchedulingTask(task)}
               />
             )}
 
@@ -456,6 +590,45 @@ export default function App() {
         onClose={() => setShowGlobalClassModal(false)}
         defaultWeekday={today.getDay()}
         onSave={handleCreateClass}
+      />
+
+      {/* Phase 2: Focus View Timer Modal */}
+      <FocusViewModal
+        isOpen={focusTask !== null}
+        onClose={() => setFocusTask(null)}
+        task={focusTask}
+        onTaskCompleted={handleTaskCompleted}
+        onShowMessage={setMessage}
+      />
+
+      {/* Phase 2: Schedule Task Slot Modal */}
+      <ScheduleTaskModal
+        isOpen={schedulingTask !== null}
+        onClose={() => setSchedulingTask(null)}
+        task={schedulingTask}
+        classes={classes}
+        today={today}
+        onSaveSchedule={handleScheduleTaskSave}
+      />
+
+      {/* Phase 3 & 4: In-App Schedule Creator & Auto Revision Planner */}
+      <ScheduleCreatorModal
+        isOpen={scheduleCreatorParams.isOpen}
+        onClose={() => setScheduleCreatorParams({ isOpen: false })}
+        initialTemplate={scheduleCreatorParams.template}
+        initialSubject={scheduleCreatorParams.subject}
+        initialDate={scheduleCreatorParams.date}
+        onSaveEvents={async (newEvents) => {
+          try {
+            const res = await window.hello11824.batchSaveScheduleEvents({ events: newEvents })
+            setMessage(`Created ${res.savedCount || newEvents.length} events for ${scheduleCreatorParams.subject || 'schedule'}!`)
+            setScheduleCreatorParams({ isOpen: false })
+            setActiveTab('schedules')
+          } catch (err) {
+            setMessage(`Error saving schedule: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }}
+        onShowMessage={setMessage}
       />
     </div>
   )

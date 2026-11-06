@@ -11,7 +11,44 @@ export interface Task {
   category: string | null
   class_id: number | null
   estimated_minutes?: number | null
+  scheduled_date?: string | null
+  scheduled_time?: string | null
+  scheduled_duration_minutes?: number | null
+  total_time_spent_seconds?: number
   created_at: string
+}
+
+export interface TaskSession {
+  id: number
+  task_id: number
+  start_time: string
+  end_time: string | null
+  duration_seconds: number
+  is_pomodoro: number
+  created_at: string
+}
+
+export interface ActiveTimer {
+  id: number
+  task_id: number
+  status: 'idle' | 'running' | 'paused'
+  start_time: string | null
+  accumulated_seconds: number
+  is_pomodoro: number
+  pomodoro_phase: 'work' | 'break'
+  pomodoro_work_duration: number
+  pomodoro_break_duration: number
+  last_heartbeat: string | null
+  task_title?: string
+  total_time_spent_seconds?: number
+  elapsed_seconds: number
+}
+
+export interface WeeklyStudyStats {
+  dailyStudiedSeconds: Record<string, number>
+  totalStudiedSeconds: number
+  plannedMinutes: number
+  actualMinutes: number
 }
 
 export interface FreeTimeSuggestion {
@@ -119,6 +156,18 @@ export interface HelloAPI {
   toggleTask(id: number, completed: boolean): Promise<boolean>
   deleteTask(id: number): Promise<boolean>
   rolloverTasks(fromDate: string, toDate: string): Promise<number>
+  scheduleTask(taskId: number, date: string, time?: string, durationMinutes?: number): Promise<Task>
+
+  // Focus View & Timer
+  getActiveTimer(): Promise<ActiveTimer | null>
+  startTimer(taskId: number, options?: { isPomodoro?: boolean; workDuration?: number; breakDuration?: number }): Promise<ActiveTimer>
+  pauseTimer(): Promise<ActiveTimer | null>
+  resumeTimer(): Promise<ActiveTimer | null>
+  stopTimer(): Promise<{ taskId: number; sessionDurationSeconds: number; totalSpentSeconds: number } | null>
+  markTaskDoneWithTimer(taskId: number): Promise<{ task: Task; timeSpentSeconds: number }>
+  undoMarkTaskDone(taskId: number): Promise<Task>
+  listTaskSessions(taskId: number): Promise<TaskSession[]>
+  getWeeklyStudyStats(startDate: string, endDate: string): Promise<WeeklyStudyStats>
 
   // Smart Free Time Task Suggestions
   getFreeTimeSuggestion(): Promise<FreeTimeSuggestion>
@@ -216,7 +265,15 @@ export interface HelloAPI {
   // Backup & Storage
   exportData(): Promise<boolean>
   importData(): Promise<boolean>
+  exportEncryptedData(passphrase: string): Promise<boolean>
+  importEncryptedData(passphrase: string): Promise<boolean>
   clearData(options: { tasks?: boolean; classes?: boolean; plans?: boolean; schedules?: boolean }): Promise<boolean>
+
+  // PIN Lock
+  isPinSet(): Promise<boolean>
+  verifyPin(pin: string): Promise<boolean>
+  setPin(pin: string): Promise<boolean>
+  removePin(currentPin: string): Promise<boolean>
 
   // Schedules & Ingestion
   pickAndIngestSchedule(): Promise<import('./types').ScheduleIngestionResult | null>
@@ -241,6 +298,14 @@ export interface HelloAPI {
   listSourceDocuments(): Promise<import('./types').SourceDocument[]>
   deleteSourceDocument(id: number, deleteEvents?: boolean): Promise<boolean>
   setEventReminders(eventId: number, reminders: Array<{ trigger_offset_minutes: number; all_day_delivery_time?: string }>): Promise<boolean>
+  exportSchedulePdf(customEvents?: import('./types').ScheduleEvent[]): Promise<{ canceled: boolean; filePath?: string }>
+  exportScheduleExcel(customEvents?: import('./types').ScheduleEvent[]): Promise<{ canceled: boolean; filePath?: string }>
+  exportScheduleCsv(customEvents?: import('./types').ScheduleEvent[]): Promise<{ canceled: boolean; filePath?: string }>
+  exportScheduleIcs(customEvents?: import('./types').ScheduleEvent[]): Promise<{ canceled: boolean; filePath?: string }>
+  getJournalEntry(date: string, type: 'morning' | 'evening'): Promise<import('./types').JournalEntry | null>
+  saveJournalEntry(date: string, type: 'morning' | 'evening', payload: { gratitude?: string; intention?: string; reflection?: string; mood?: string }): Promise<void>
+  getWeeklyReflectionReport(startDate: string, endDate: string): Promise<import('./types').WeeklyReflectionReport>
+  getUserStreakAndBadges(): Promise<import('./types').UserStreakAndBadges>
 
   // Application Info
   getAppVersion(): Promise<string>

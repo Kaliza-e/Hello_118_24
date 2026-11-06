@@ -4,6 +4,7 @@ import mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
 import { createWorker } from 'tesseract.js'
 import { ScheduleCategory } from '../db'
+import { parseIcsSchedule } from '../scheduleExport'
 
 export interface CandidateScheduleEvent {
   id?: string
@@ -637,6 +638,18 @@ export async function ingestScheduleDocument(
         }
       }
     } catch {}
+  } else if (cleanExt === 'ics') {
+    rawText = buffer.toString('utf8')
+    const icsCandidates = parseIcsSchedule(rawText)
+    return {
+      fileName,
+      fileType: cleanExt,
+      fileSize,
+      fileHash,
+      rawText,
+      needsOcr: false,
+      candidates: icsCandidates
+    }
   } else if (['xlsx', 'xls', 'csv'].includes(cleanExt)) {
     // Read spreadsheet
     const workbook = XLSX.read(buffer, { type: 'buffer', raw: true })

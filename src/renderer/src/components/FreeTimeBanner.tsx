@@ -6,7 +6,8 @@ import {
   ExternalLink,
   BellOff,
   X,
-  Plus
+  Plus,
+  Play
 } from 'lucide-react'
 import type { Task, FreeTimeSuggestion } from '../types'
 
@@ -17,6 +18,7 @@ interface FreeTimeBannerProps {
   onOpenCreateTask?: () => void
   onRefreshTasks: () => Promise<void>
   onShowMessage: (msg: string) => void
+  onOpenFocusTimer?: (task: Task) => void
 }
 
 export function FreeTimeBanner({
@@ -25,7 +27,8 @@ export function FreeTimeBanner({
   onOpenTask,
   onOpenCreateTask,
   onRefreshTasks,
-  onShowMessage
+  onShowMessage,
+  onOpenFocusTimer
 }: FreeTimeBannerProps) {
   const [suggestion, setSuggestion] = useState<FreeTimeSuggestion | null>(null)
   const [loadingAction, setLoadingAction] = useState(false)
@@ -159,6 +162,17 @@ export function FreeTimeBanner({
             </span>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {onOpenFocusTimer && (
+                <button
+                  type="button"
+                  className="btn-tiny-action"
+                  style={{ background: 'var(--accent-purple-btn)', color: '#fff', gap: 3 }}
+                  onClick={() => onOpenFocusTimer(suggestedTask as Task)}
+                  title="Start Focus Timer for this task"
+                >
+                  <Play size={10} style={{ fill: 'currentColor' }} /> Focus
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-tiny-action complete"
@@ -297,20 +311,35 @@ export function FreeTimeBanner({
 
             {/* Quick Actions */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              {onOpenFocusTimer && (
+                <button
+                  type="button"
+                  className="btn-primary-pill"
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 11.5,
+                    background: 'var(--accent-purple-btn)',
+                    color: 'var(--text-on-accent)',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5
+                  }}
+                  onClick={() => onOpenFocusTimer(suggestedTask as Task)}
+                  title="Start running Focus Timer on this task"
+                >
+                  <Play size={12} style={{ fill: 'currentColor' }} /> Focus Now
+                </button>
+              )}
+
               <button
                 type="button"
-                className="btn-primary-pill"
-                style={{
-                  padding: '6px 14px',
-                  fontSize: 11.5,
-                  background: 'var(--accent-purple-btn)',
-                  color: 'var(--text-on-accent)',
-                  fontWeight: 600
-                }}
+                className="btn-secondary-pill"
+                style={{ padding: '6px 12px', fontSize: 11.5 }}
                 onClick={handleCompleteTask}
                 disabled={loadingAction}
               >
-                <CheckCircle2 size={12} /> Mark Completed
+                <CheckCircle2 size={12} /> Mark Done
               </button>
 
               {onOpenTask && (

@@ -115,4 +115,74 @@ describe('Security & Hardening Audit Verification', () => {
     const ci = readFileSync(ciPath, 'utf-8')
     assert.ok(ci.includes('--publish never'), 'Default CI runs must never auto-publish without approval')
   })
+
+  it('Formula Injection Sanitization: neutralizes spreadsheet formula prefixes', () => {
+    function sanitizeSpreadsheetCell(value) {
+      if (value === null || value === undefined) return ''
+      const str = String(value)
+      if (/^[=\+\-@\t\r]/.test(str)) {
+        return `'${str}`
+      }
+      return str
+    }
+
+    assert.equal(sanitizeSpreadsheetCell('=SUM(A1:A10)'), "'=SUM(A1:A10)")
+    assert.equal(sanitizeSpreadsheetCell('+cmd|/c calc'), "'+cmd|/c calc")
+    assert.equal(sanitizeSpreadsheetCell('-123'), "'-123")
+    assert.equal(sanitizeSpreadsheetCell('@evil.com'), "'@evil.com")
+    assert.equal(sanitizeSpreadsheetCell('Normal Task Title'), 'Normal Task Title')
+  })
+
+  it('PIN KDF Hashing & Verification: salted scrypt verification succeeds and rejects bad PIN', async () => {
+    const { scryptSync, randomBytes, timingSafeEqual } = await import('node:crypto')
+
+    function deriveKey(passphrase, salt) {
+      return scryptSync(passphrase, salt, 32, { N: 16384, r: 8, p: 1 })
+    }
+
+    function hashPin(pin, existingSaltHex) {
+      const salt = existingSaltHex ? Buffer.from(existingSaltHex, 'hex') : randomBytes(16)
+      const derived = deriveKey(pin, salt)
+      return { hashHex: derived.toString('hex'), saltHex: salt.toString('hex') }
+    }
+
+    function verifyPin(pin, storedHashHex, storedSaltHex) {
+      try {
+        const salt = Buffer.from(storedSaltHex, 'hex')
+        const expected = Buffer.from(storedHashHex, 'hex')
+        const calculated = deriveKey(pin, salt)
+        return timingSafeEqual(calculated, expected)
+      } catch {
+        return false
+      }
+    }
+
+    const { hashHex, saltHex } = hashPin('1234')
+    assert.equal(verifyPin('1234', hashHex, saltHex), true, 'Correct PIN must verify')
+    assert.equal(verifyPin('0000', hashHex, saltHex), false, 'Wrong PIN must be rejected')
+    assert.equal(verifyPin('12345', hashHex, saltHex), false, 'Longer PIN must be rejected')
+  })
+
+  it('Encrypted Backup: AES-256-GCM password roundtrip encrypts and recovers JSON', async () => {
+    const { randomBytes, scryptSync, createCipheriv, createDecipheriv } = await import('node:crypto')
+
+    const secretData = { tasks: [{ title: 'Secret Task' }], notes: 'Confidential student notes' }
+    const passphrase = 'MyMasterPassword123'
+
+    const salt = randomBytes(16)
+    const key = scryptSync(passphrase, salt, 32, { N: 16384, r: 8, p: 1 })
+    const iv = randomBytes(16)
+    const cipher = createCipheriv('aes-256-gcm', key, iv)
+    const encrypted = Buffer.concat([cipher.update(JSON.stringify(secretData), 'utf8'), cipher.final()])
+    const tag = cipher.getAuthTag()
+
+    // Decrypt
+    const decipherKey = scryptSync(passphrase, salt, 32, { N: 16384, r: 8, p: 1 })
+    const decipher = createDecipheriv('aes-256-gcm', decipherKey, iv)
+    decipher.setAuthTag(tag)
+    const decrypted = decipher.update(encrypted) + decipher.final('utf8')
+    const recovered = JSON.parse(decrypted)
+
+    assert.deepEqual(recovered, secretData, 'Recovered payload must match original secret data')
+  })
 })

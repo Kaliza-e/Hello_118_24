@@ -1,12 +1,18 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
   Calendar,
-  Sparkles
+  Sparkles,
+  Clock,
+  Play,
+  BarChart2,
+  CheckCircle2,
+  Target
 } from 'lucide-react'
-import { Task, ClassItem, WEEKDAYS, SHORT_DAYS, toDateKey } from '../types'
+import { Task, ClassItem, WEEKDAYS, SHORT_DAYS, toDateKey, WeeklyStudyStats } from '../types'
+import { WeeklyReflectionModal } from './WeeklyReflectionModal'
 
 interface WeeklyOverviewProps {
   today: Date
@@ -14,6 +20,8 @@ interface WeeklyOverviewProps {
   tasks: Task[]
   onNavigatePlan: () => void
   onOpenTaskModal: () => void
+  onOpenFocusTimer?: (task: Task) => void
+  onScheduleTask?: (task: Task) => void
 }
 
 const DOT_COLORS = [
@@ -30,12 +38,16 @@ export function WeeklyOverview({
   classes,
   tasks,
   onNavigatePlan,
-  onOpenTaskModal
+  onOpenTaskModal,
+  onOpenFocusTimer,
+  onScheduleTask
 }: WeeklyOverviewProps) {
   const [weekOffset, setWeekOffset] = useState(0)
+  const [studyStats, setStudyStats] = useState<WeeklyStudyStats | null>(null)
+  const [isReflectionModalOpen, setIsReflectionModalOpen] = useState(false)
 
   // Calculate 7 days for the selected week starting from Monday
-  const { days, rangeLabel } = useMemo(() => {
+  const { days, rangeLabel, mondayKey, sundayKey } = useMemo(() => {
     const currentDay = today.getDay()
     const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay
     const monday = new Date(today)
@@ -59,6 +71,7 @@ export function WeeklyOverview({
         .sort((a, b) => a.start_time.localeCompare(b.start_time))
 
       const dayTasks = tasks.filter(t => t.due_date === dKey)
+      const scheduledTasks = tasks.filter(t => t.scheduled_date === dKey)
 
       list.push({
         date: d,
@@ -66,12 +79,37 @@ export function WeeklyOverview({
         dayIdx: dIdx,
         shortName: SHORT_DAYS[dIdx],
         classes: dayClasses,
-        tasks: dayTasks
+        tasks: dayTasks,
+        scheduledTasks
       })
     }
 
-    return { days: list, rangeLabel: `${monStr} – ${sunStr}` }
+    return {
+      days: list,
+      rangeLabel: `${monStr} – ${sunStr}`,
+      mondayKey: toDateKey(monday),
+      sundayKey: toDateKey(sunday)
+    }
   }, [today, classes, tasks, weekOffset])
+
+  // Fetch weekly study stats for planned vs actual and daily study time
+  useEffect(() => {
+    let cancelled = false
+    window.hello11824
+      ?.getWeeklyStudyStats?.(mondayKey, sundayKey)
+      .then(stats => {
+        if (!cancelled && stats) {
+          setStudyStats(stats)
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load study stats:', err)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [mondayKey, sundayKey, tasks])
 
   // Incomplete tasks this week
   const incompleteTasksThisWeek = useMemo(() => {
@@ -91,12 +129,33 @@ export function WeeklyOverview({
       .slice(0, 3)
   }, [tasks, today])
 
+  // Max daily study seconds for chart scaling
+  const maxStudySeconds = useMemo(() => {
+    if (!studyStats?.dailyStudiedSeconds) return 3600
+    const vals = Object.values(studyStats.dailyStudiedSeconds)
+    const max = Math.max(...vals, 0)
+    return Math.max(max, 3600) // at least 1h scale
+  }, [studyStats])
+
+  const actualMinutes = studyStats?.actualMinutes ?? Math.round((studyStats?.totalStudiedSeconds || 0) / 60)
+  const plannedMinutes = studyStats?.plannedMinutes || 0
+  const adherencePercent = plannedMinutes > 0 ? Math.min(100, Math.round((actualMinutes / plannedMinutes) * 100)) : (actualMinutes > 0 ? 100 : 0)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Top Header */}
       <div className="view-top-header">
         <h2 className="view-page-title">Weekly Overview</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            className="btn-primary-pill"
+            style={{ background: 'var(--accent-purple-btn)', fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={() => setIsReflectionModalOpen(true)}
+            title="View weekly study reflection, subject breakdown, and encouraging badges"
+          >
+            <Sparkles size={11} /> Reflection Report
+          </button>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>
             {rangeLabel}
           </span>
@@ -121,14 +180,14 @@ export function WeeklyOverview({
         </div>
       </div>
 
-      {/* 7-Day Dot Timeline Grid (Panel 4) */}
+      {/* 7-Day Timeline Grid (Classes & Scheduled Tasks) */}
       <div
         className="app-card"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(7, 1fr)',
           gap: 8,
-          minHeight: 180,
+          minHeight: 190,
           padding: 14
         }}
       >
@@ -144,28 +203,35 @@ export function WeeklyOverview({
               paddingRight: colIdx < 6 ? 8 : 0
             }}
           >
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <span
+              style={{
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: d.dateKey === toDateKey(today) ? 'var(--accent-purple)' : 'var(--text-secondary)'
+              }}
+            >
               {d.shortName}
             </span>
 
-            {/* Vertical Dot Timeline */}
+            {/* Vertical Dot Timeline for Classes */}
             <div
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 7,
+                gap: 6,
                 alignItems: 'center',
                 flex: 1,
-                paddingTop: 8
+                paddingTop: 4,
+                width: '100%'
               }}
             >
               {d.classes.length === 0 ? (
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', marginTop: 12 }} />
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', marginTop: 8 }} />
               ) : (
                 d.classes.map((c, i) => (
                   <div
                     key={c.id || i}
-                    title={`${c.start_time} - ${c.title}`}
+                    title={`${c.start_time} - ${c.title}${c.room ? ` (Room: ${c.room})` : ''}`}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -188,12 +254,125 @@ export function WeeklyOverview({
                   </div>
                 ))
               )}
+
+              {/* Scheduled Tasks for this Day */}
+              {d.scheduledTasks.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    width: '100%',
+                    alignItems: 'center'
+                  }}
+                >
+                  <span style={{ fontSize: 8, color: 'var(--accent-purple)', fontWeight: 600 }}>TASKS</span>
+                  {d.scheduledTasks.map(st => (
+                    <div
+                      key={st.id}
+                      onClick={() => onOpenFocusTimer?.(st)}
+                      title={`Scheduled: ${st.scheduled_time || 'Anytime'} - ${st.title} (Click to focus)`}
+                      style={{
+                        fontSize: 9.5,
+                        padding: '2px 4px',
+                        borderRadius: 4,
+                        background: st.completed ? 'var(--bg-card-inner)' : 'var(--accent-purple-bg)',
+                        border: '1px solid var(--border-focus)',
+                        color: st.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                        textAlign: 'center',
+                        width: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {st.scheduled_time ? `${st.scheduled_time} ` : ''}{st.title}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Bottom 3 Summary Cards Matching Panel 4 */}
+      {/* Phase 2: Time Studied Per Day & Planned vs Actual Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Time Studied Per Day Bar Chart */}
+        <div className="app-card" style={{ padding: 12, gap: 10, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span className="section-sublabel" style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <BarChart2 size={13} color="var(--accent-purple)" /> Time Studied Per Day
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-purple)' }}>
+              {Math.floor(actualMinutes / 60)}h {actualMinutes % 60}m total
+            </span>
+          </div>
+
+          {/* Daily Bar Chart */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, alignItems: 'flex-end', height: 80, paddingTop: 8 }}>
+            {days.map(d => {
+              const sec = studyStats?.dailyStudiedSeconds?.[d.dateKey] || 0
+              const mins = Math.round(sec / 60)
+              const heightPercent = maxStudySeconds > 0 ? Math.max(8, Math.round((sec / maxStudySeconds) * 100)) : 8
+
+              return (
+                <div key={d.dateKey} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
+                  <div
+                    title={`${d.shortName}: ${mins} min studied`}
+                    style={{
+                      width: '75%',
+                      height: `${heightPercent}%`,
+                      background: sec > 0 ? 'var(--accent-purple-btn)' : 'var(--border-subtle)',
+                      borderRadius: '3px 3px 0 0',
+                      transition: 'height 0.3s ease'
+                    }}
+                  />
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{d.shortName}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Planned vs Actual Metrics */}
+        <div className="app-card" style={{ padding: 12, gap: 10, display: 'flex', flexDirection: 'column' }}>
+          <span className="section-sublabel" style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Target size={13} color="var(--accent-purple)" /> Planned vs Actual Study
+          </span>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 2 }}>
+            <div style={{ background: 'var(--bg-card-inner)', padding: '8px 10px', borderRadius: 6 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Planned</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {Math.floor(plannedMinutes / 60)}h {plannedMinutes % 60}m
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-card-inner)', padding: '8px 10px', borderRadius: 6 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Actual Studied</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-cyan)' }}>
+                {Math.floor(actualMinutes / 60)}h {actualMinutes % 60}m
+              </div>
+            </div>
+          </div>
+
+          {/* Adherence progress bar */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--text-secondary)' }}>
+              <span>Plan Progress</span>
+              <span style={{ fontWeight: 600, color: 'var(--accent-purple)' }}>{adherencePercent}%</span>
+            </div>
+            <div className="tasks-progress-bar" style={{ height: 6 }}>
+              <div className="tasks-progress-fill" style={{ width: `${adherencePercent}%`, background: 'var(--accent-purple-btn)' }} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom 3 Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         {/* Card 1: Upcoming Deadlines */}
         <div className="app-card" style={{ padding: 12, gap: 8 }}>
@@ -266,6 +445,14 @@ export function WeeklyOverview({
           </button>
         </div>
       </div>
+
+      {/* Weekly Reflection Report Modal */}
+      <WeeklyReflectionModal
+        isOpen={isReflectionModalOpen}
+        onClose={() => setIsReflectionModalOpen(false)}
+        startDate={mondayKey}
+        endDate={sundayKey}
+      />
     </div>
   )
 }

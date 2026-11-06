@@ -17,7 +17,10 @@ import {
   FolderOpen,
   X,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Download,
+  FileSpreadsheet,
+  FileDown
 } from 'lucide-react'
 import {
   ScheduleEvent,
@@ -29,6 +32,7 @@ import {
 } from '../types'
 import { ScheduleEventModal } from './ScheduleEventModal'
 import { ScheduleReviewModal } from './ScheduleReviewModal'
+import { ScheduleCreatorModal } from './ScheduleCreatorModal'
 
 interface SchedulesViewProps {
   onShowMessage: (msg: string) => void
@@ -52,6 +56,8 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false)
   const [currentIngestion, setCurrentIngestion] = useState<ScheduleIngestionResult | null>(null)
   const [isDocsDrawerOpen, setIsDocsDrawerOpen] = useState(false)
+  const [isCreatorModalOpen, setIsCreatorModalOpen] = useState(false)
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
 
   // Load events and source documents
   const loadData = useCallback(async () => {
@@ -214,6 +220,72 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
     }
   }
 
+  // Save events generated from in-app Schedule Creator
+  async function handleSaveCreatedSchedule(candidates: CandidateScheduleEvent[]) {
+    try {
+      const res = await window.hello11824.batchSaveScheduleEvents({
+        events: candidates
+      })
+      onShowMessage(`Successfully saved ${res.savedCount} schedule events!`)
+      loadData()
+    } catch (err) {
+      onShowMessage(`Save error: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Export handlers
+  async function handleExportPdf() {
+    setIsExportMenuOpen(false)
+    try {
+      const res = await window.hello11824.exportSchedulePdf(filteredEvents)
+      if (!res.canceled && res.filePath) {
+        const name = res.filePath.split(/[\\/]/).pop()
+        onShowMessage(`Exported ${filteredEvents.length} events to PDF (${name})`)
+      }
+    } catch (err) {
+      onShowMessage(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  async function handleExportExcel() {
+    setIsExportMenuOpen(false)
+    try {
+      const res = await window.hello11824.exportScheduleExcel(filteredEvents)
+      if (!res.canceled && res.filePath) {
+        const name = res.filePath.split(/[\\/]/).pop()
+        onShowMessage(`Exported ${filteredEvents.length} events to Excel (${name})`)
+      }
+    } catch (err) {
+      onShowMessage(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  async function handleExportCsv() {
+    setIsExportMenuOpen(false)
+    try {
+      const res = await window.hello11824.exportScheduleCsv(filteredEvents)
+      if (!res.canceled && res.filePath) {
+        const name = res.filePath.split(/[\\/]/).pop()
+        onShowMessage(`Exported ${filteredEvents.length} events to CSV (${name})`)
+      }
+    } catch (err) {
+      onShowMessage(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  async function handleExportIcs() {
+    setIsExportMenuOpen(false)
+    try {
+      const res = await window.hello11824.exportScheduleIcs(filteredEvents)
+      if (!res.canceled && res.filePath) {
+        const name = res.filePath.split(/[\\/]/).pop()
+        onShowMessage(`Exported ${filteredEvents.length} events to iCalendar (${name})`)
+      }
+    } catch (err) {
+      onShowMessage(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   function getCategoryColor(cat: ScheduleCategory): string {
     switch (cat) {
       case 'Exams':
@@ -248,14 +320,91 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
       {/* Top Header - Matches TimetableManager exactly */}
       <div className="view-top-header">
         <h2 className="view-page-title">Schedules</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
           <button
             type="button"
             className="btn-primary-pill"
-            onClick={handleImportDocument}
+            style={{ background: 'var(--accent-purple-btn)' }}
+            onClick={() => setIsCreatorModalOpen(true)}
+            title="Design a study plan, exam prep, or weekly schedule"
           >
-            <Upload size={13} /> Import Schedule
+            <Sparkles size={13} /> Create Schedule
           </button>
+
+          <button
+            type="button"
+            className="btn-secondary-pill"
+            onClick={handleImportDocument}
+            title="Import PDF, Excel, Word, CSV, or .ics"
+          >
+            <Upload size={13} /> Import
+          </button>
+
+          {/* Export Dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn-secondary-pill"
+              onClick={() => setIsExportMenuOpen(prev => !prev)}
+              title="Export schedules to PDF, Excel, CSV, or iCalendar"
+            >
+              <Download size={13} /> Export
+            </button>
+
+            {isExportMenuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 36,
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-card)',
+                  borderRadius: 8,
+                  padding: 4,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                  zIndex: 40,
+                  minWidth: 170,
+                  boxShadow: 'var(--shadow-card)'
+                }}
+              >
+                <button
+                  type="button"
+                  className="sidebar-nav-item"
+                  style={{ padding: '6px 10px', fontSize: 11.5 }}
+                  onClick={handleExportPdf}
+                >
+                  <FileText size={12} color="#f43f5e" /> Printable PDF (.pdf)
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-nav-item"
+                  style={{ padding: '6px 10px', fontSize: 11.5 }}
+                  onClick={handleExportExcel}
+                >
+                  <FileSpreadsheet size={12} color="#10b981" /> Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-nav-item"
+                  style={{ padding: '6px 10px', fontSize: 11.5 }}
+                  onClick={handleExportCsv}
+                >
+                  <FileDown size={12} color="#06b6d4" /> CSV Spreadsheet (.csv)
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-nav-item"
+                  style={{ padding: '6px 10px', fontSize: 11.5 }}
+                  onClick={handleExportIcs}
+                >
+                  <Calendar size={12} color="#a855f7" /> iCalendar (.ics)
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             className="btn-secondary-pill"
@@ -268,13 +417,14 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
           >
             <Plus size={15} />
           </button>
+
           <button
             type="button"
             className={`btn-secondary-pill ${isDocsDrawerOpen ? 'active' : ''}`}
             onClick={() => setIsDocsDrawerOpen(prev => !prev)}
             title="View imported source documents"
           >
-            <FolderOpen size={13} /> Documents ({sourceDocs.length})
+            <FolderOpen size={13} /> Docs ({sourceDocs.length})
           </button>
         </div>
       </div>
@@ -625,6 +775,14 @@ export function SchedulesView({ onShowMessage }: SchedulesViewProps) {
           onSave={handleSaveEvent}
         />
       )}
+
+      {/* In-App Schedule Creator Modal (Study Plan, Exam Prep, Weekly Plan) */}
+      <ScheduleCreatorModal
+        isOpen={isCreatorModalOpen}
+        onClose={() => setIsCreatorModalOpen(false)}
+        onSaveEvents={handleSaveCreatedSchedule}
+        onShowMessage={onShowMessage}
+      />
     </div>
   )
 }

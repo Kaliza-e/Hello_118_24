@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { X, Calendar, Clock, Tag, Flag } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { X, Calendar, Clock, Tag, Flag, Sparkles, Check, ArrowRight } from 'lucide-react'
 import { Task, toDateKey } from '../types'
+import { parseNaturalLanguageTask, ParsedTaskInput } from '../../../shared/nlParser'
 
 interface TaskModalProps {
   isOpen: boolean
@@ -19,6 +20,7 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskModalProps) {
+  const [nlInput, setNlInput] = useState('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState('')
@@ -29,8 +31,26 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
   const [isCustomDuration, setIsCustomDuration] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // Real-time parsed live preview of natural language entry
+  const parsedNL = useMemo<ParsedTaskInput>(() => {
+    return parseNaturalLanguageTask(nlInput)
+  }, [nlInput])
+
+  function applyParsedFields(parsed: ParsedTaskInput) {
+    if (parsed.cleanTitle) setTitle(parsed.cleanTitle)
+    if (parsed.dueDate) setDueDate(parsed.dueDate)
+    if (parsed.dueTime) setDueTime(parsed.dueTime)
+    if (parsed.priority) setPriority(parsed.priority)
+    if (parsed.category) setCategory(parsed.category)
+    if (parsed.estimatedMinutes) {
+      setEstimatedMinutes(parsed.estimatedMinutes)
+      setIsCustomDuration(![15, 25, 30, 45, 60, 90].includes(parsed.estimatedMinutes))
+    }
+  }
+
   useEffect(() => {
     if (task) {
+      setNlInput('')
       setTitle(task.title || '')
       setDescription(task.description || '')
       setDueDate(task.due_date || '')
@@ -41,6 +61,7 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
       setEstimatedMinutes(est)
       setIsCustomDuration(est !== '' && ![15, 25, 30, 45, 60, 90].includes(Number(est)))
     } else {
+      setNlInput('')
       setTitle('')
       setDescription('')
       setDueDate(defaultDate || toDateKey(new Date()))
@@ -87,10 +108,116 @@ export function TaskModal({ isOpen, onClose, task, defaultDate, onSave }: TaskMo
 
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
+            {/* Natural Language Quick Entry with Live Preview */}
+            {!task && (
+              <div
+                style={{
+                  background: 'var(--accent-purple-bg)',
+                  border: '1px solid var(--border-focus)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  marginBottom: 10
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <label className="input-label" style={{ color: 'var(--accent-purple)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
+                    <Sparkles size={13} /> Natural-Language Quick Entry
+                  </label>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    Type freely: title, date, time, priority
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder='e.g. "Submit docs tomorrow 5pm high ~45m #Project"'
+                    value={nlInput}
+                    onChange={e => {
+                      setNlInput(e.target.value)
+                      const parsed = parseNaturalLanguageTask(e.target.value)
+                      if (parsed.cleanTitle) setTitle(parsed.cleanTitle)
+                      if (parsed.dueDate) setDueDate(parsed.dueDate)
+                      if (parsed.dueTime) setDueTime(parsed.dueTime)
+                      if (parsed.priority) setPriority(parsed.priority)
+                      if (parsed.category) setCategory(parsed.category)
+                      if (parsed.estimatedMinutes) {
+                        setEstimatedMinutes(parsed.estimatedMinutes)
+                        setIsCustomDuration(![15, 25, 30, 45, 60, 90].includes(parsed.estimatedMinutes))
+                      }
+                    }}
+                    style={{ background: 'var(--bg-card)' }}
+                  />
+                  {nlInput.trim() && (
+                    <button
+                      type="button"
+                      className="btn-primary-pill"
+                      style={{ padding: '0 10px', fontSize: 11, background: 'var(--accent-purple-btn)', flexShrink: 0 }}
+                      onClick={() => applyParsedFields(parsedNL)}
+                      title="Apply parsed fields"
+                    >
+                      <Check size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Live Preview of Parsed Fields */}
+                {nlInput.trim() && parsedNL.hasParsedFields && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 10.5,
+                      paddingTop: 4,
+                      borderTop: '1px solid rgba(124, 58, 237, 0.2)'
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Parsed:</span>
+                    {parsedNL.cleanTitle && (
+                      <span className="priority-badge-pill" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                        Title: {parsedNL.cleanTitle}
+                      </span>
+                    )}
+                    {parsedNL.dueDate && (
+                      <span className="priority-badge-pill" style={{ background: 'var(--bg-card)', color: 'var(--accent-purple)' }}>
+                        📅 {parsedNL.dueDate}
+                      </span>
+                    )}
+                    {parsedNL.dueTime && (
+                      <span className="priority-badge-pill" style={{ background: 'var(--bg-card)', color: 'var(--accent-cyan)' }}>
+                        ⏰ {parsedNL.dueTime}
+                      </span>
+                    )}
+                    {parsedNL.priority && (
+                      <span className={`priority-badge-pill ${parsedNL.priority}`}>
+                        {parsedNL.priority === 'high' ? 'High Priority' : parsedNL.priority === 'low' ? 'Low Priority' : 'Normal'}
+                      </span>
+                    )}
+                    {parsedNL.estimatedMinutes && (
+                      <span className="priority-badge-pill" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                        ⏱ {parsedNL.estimatedMinutes}m
+                      </span>
+                    )}
+                    {parsedNL.category && (
+                      <span className="priority-badge-pill" style={{ background: 'var(--bg-card)', color: 'var(--dot-pink)' }}>
+                        #{parsedNL.category}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="input-group">
               <label className="input-label">Task Title *</label>
               <input
-                autoFocus
+                autoFocus={Boolean(task)}
                 className="input-field"
                 placeholder="What needs to get done?"
                 value={title}

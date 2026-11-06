@@ -12,7 +12,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node test/runner.mjs",
+    "test": "electron test/runner.mjs",
     "clean": "node -e \"const fs = require('fs'); ['release', 'out'].forEach(d => { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} });\"",
     "clean:win": "powershell -Command \"Remove-Item -Recurse -Force release, out -ErrorAction SilentlyContinue\"",
     "package:win": "powershell -Command \"Get-Process -Name 'Hello 11824', 'electron' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 300; Remove-Item -Recurse -Force release -ErrorAction SilentlyContinue; exit 0\" && npm run build && electron-builder --win nsis",
@@ -28,7 +28,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tesseract.js": "^6.0.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
